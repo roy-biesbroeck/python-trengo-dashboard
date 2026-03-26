@@ -471,6 +471,12 @@
     let closedData = null;
 
     async function loadClosedData() {
+      if (!closedData) {
+        const el = document.getElementById('s-closed');
+        const sub = document.getElementById('s-closed-sub');
+        if (el) el.textContent = '...';
+        if (sub) sub.textContent = 'Laden…';
+      }
       try {
         const res = await fetch('/api/closed');
         if (!res.ok) return;
