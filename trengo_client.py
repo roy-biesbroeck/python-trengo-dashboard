@@ -224,6 +224,23 @@ class TrengoClient:
             except (ValueError, TypeError):
                 unknown_age += 1
 
+        new_today = 0
+        for ticket in all_tickets:
+            if not isinstance(ticket, dict):
+                continue
+            created_raw = ticket.get("created_at")
+            if not created_raw:
+                continue
+            try:
+                created_str = str(created_raw).replace("Z", "+00:00")
+                created_at = datetime.fromisoformat(created_str)
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                if created_at.astimezone().date() == today_local:
+                    new_today += 1
+            except (ValueError, TypeError):
+                continue
+
         age_buckets = [
             {"key": "today",    "label": "Vandaag",      "sublabel": "Kalenderdag",    "count": age_counts[0]},
             {"key": "week",     "label": "< 1 week",     "sublabel": "1–6 dagen",      "count": age_counts[1]},
@@ -238,6 +255,7 @@ class TrengoClient:
                 "total": len(all_tickets),
                 "new": len(open_tickets),
                 "assigned": len(assigned_tickets),
+                "new_today": new_today,
             },
             "teams": teams_list,
             "users": users_list,
