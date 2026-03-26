@@ -1,11 +1,25 @@
 import os
 import time
 import requests
-from typing import List, Dict
+from typing import List, Dict, Optional
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+def parse_datetime(raw) -> Optional[datetime]:
+    """Parse een ISO-datetime string naar een timezone-aware datetime, of None."""
+    if not raw:
+        return None
+    try:
+        s = str(raw).replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, TypeError):
+        return None
 
 
 class TrengoClient:
@@ -87,19 +101,12 @@ class TrengoClient:
         for ticket in closed:
             if not isinstance(ticket, dict):
                 continue
-            closed_at_raw = ticket.get("closed_at")
-            if not closed_at_raw:
+            closed_at = parse_datetime(ticket.get("closed_at"))
+            if not closed_at:
                 continue
-            try:
-                closed_str = str(closed_at_raw).replace("Z", "+00:00")
-                closed_at = datetime.fromisoformat(closed_str)
-                if closed_at.tzinfo is None:
-                    closed_at = closed_at.replace(tzinfo=timezone.utc)
-                age_days = (now_utc - closed_at).total_seconds() / 86400
-                if age_days <= 90:
-                    result.append(ticket)
-            except (ValueError, TypeError):
-                continue
+            age_days = (now_utc - closed_at).total_seconds() / 86400
+            if age_days <= 90:
+                result.append(ticket)
         return result
 
     def get_dashboard_data(self) -> Dict:

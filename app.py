@@ -3,7 +3,7 @@ import os
 from datetime import datetime, timezone, timedelta
 
 from flask import Flask, render_template, jsonify
-from trengo_client import TrengoClient
+from trengo_client import TrengoClient, parse_datetime
 
 app = Flask(__name__)
 
@@ -136,27 +136,20 @@ def _get_closed_data():
     daily_counts = {}
 
     for ticket in closed_tickets:
-        closed_at_raw = ticket.get("closed_at")
-        if not closed_at_raw:
+        closed_at = parse_datetime(ticket.get("closed_at"))
+        if not closed_at:
             continue
-        try:
-            closed_str = str(closed_at_raw).replace("Z", "+00:00")
-            closed_at = datetime.fromisoformat(closed_str)
-            if closed_at.tzinfo is None:
-                closed_at = closed_at.replace(tzinfo=timezone.utc)
 
-            closed_local_date = closed_at.astimezone().date()
-            date_key = closed_local_date.isoformat()
-            daily_counts[date_key] = daily_counts.get(date_key, 0) + 1
+        closed_local_date = closed_at.astimezone().date()
+        date_key = closed_local_date.isoformat()
+        daily_counts[date_key] = daily_counts.get(date_key, 0) + 1
 
-            if closed_local_date == today_local:
-                closed_today += 1
-            if closed_at >= week_ago:
-                closed_week += 1
-            if closed_at >= month_ago:
-                closed_month += 1
-        except (ValueError, TypeError):
-            continue
+        if closed_local_date == today_local:
+            closed_today += 1
+        if closed_at >= week_ago:
+            closed_week += 1
+        if closed_at >= month_ago:
+            closed_month += 1
 
     result = {
         "closed_today": closed_today,
