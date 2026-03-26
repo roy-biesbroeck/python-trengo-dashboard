@@ -1,6 +1,6 @@
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 from flask import Flask, render_template, jsonify
 from trengo_client import TrengoClient
@@ -14,6 +14,10 @@ HISTORY_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 
 # MORE than both the percentage threshold AND the absolute threshold.
 _SPIKE_PCT   = 0.20   # 20 % relative deviation
 _SPIKE_ABS   = 15     # 15 tickets absolute deviation
+
+# Closed-ticket cache (refreshed every 30 minutes)
+_closed_cache = {"data": None, "fetched_at": None}
+_CLOSED_TTL = timedelta(minutes=30)
 
 
 def _median(values):
@@ -107,6 +111,74 @@ def dashboard():
 @app.route("/api/history")
 def history():
     return jsonify(_filter_spikes(_load_history()))
+
+
+def _get_closed_data():
+    """Return closed-ticket stats, using 30-min cache."""
+    now = datetime.now(timezone.utc)
+    if (_closed_cache["data"] is not None
+            and _closed_cache["fetched_at"] is not None
+            and now - _closed_cache["fetched_at"] < _CLOSED_TTL):
+        return _closed_cache["data"]
+
+    client = TrengoClient()
+    closed_tickets = client.get_closed_tickets()
+
+    now_utc = datetime.now(timezone.utc)
+    today_local = datetime.now().date()
+    week_ago = now_utc - timedelta(days=7)
+    month_ago = now_utc - timedelta(days=30)
+
+    closed_today = 0
+    closed_week = 0
+    closed_month = 0
+    closed_total = len(closed_tickets)
+    daily_counts = {}
+
+    for ticket in closed_tickets:
+        closed_at_raw = ticket.get("closed_at")
+        if not closed_at_raw:
+            continue
+        try:
+            closed_str = str(closed_at_raw).replace("Z", "+00:00")
+            closed_at = datetime.fromisoformat(closed_str)
+            if closed_at.tzinfo is None:
+                closed_at = closed_at.replace(tzinfo=timezone.utc)
+
+            closed_local_date = closed_at.astimezone().date()
+            date_key = closed_local_date.isoformat()
+            daily_counts[date_key] = daily_counts.get(date_key, 0) + 1
+
+            if closed_local_date == today_local:
+                closed_today += 1
+            if closed_at >= week_ago:
+                closed_week += 1
+            if closed_at >= month_ago:
+                closed_month += 1
+        except (ValueError, TypeError):
+            continue
+
+    result = {
+        "closed_today": closed_today,
+        "closed_week": closed_week,
+        "closed_month": closed_month,
+        "closed_90d": closed_total,
+        "daily_counts": daily_counts,
+        "fetched_at": now.isoformat(),
+    }
+    _closed_cache["data"] = result
+    _closed_cache["fetched_at"] = now
+    return result
+
+
+@app.route("/api/closed")
+def closed():
+    try:
+        return jsonify(_get_closed_data())
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 500
+    except Exception as e:
+        return jsonify({"error": f"Onverwachte fout: {str(e)}"}), 500
 
 
 if __name__ == "__main__":
