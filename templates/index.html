@@ -408,6 +408,7 @@
     </div>
     <div class="header-right">
       <span class="last-updated" id="lastUpdated"></span>
+      <span class="last-updated" id="closedUpdated"></span>
       <button class="btn-refresh" id="refreshBtn" onclick="loadDashboard()">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -465,6 +466,51 @@
       return new Date(iso).toLocaleTimeString('nl-NL', {
         hour: '2-digit', minute: '2-digit', second: '2-digit'
       });
+    }
+
+    let closedData = null;
+
+    async function loadClosedData() {
+      try {
+        const res = await fetch('/api/closed');
+        if (!res.ok) return;
+        closedData = await res.json();
+        renderClosedCard();
+      } catch { /* silent */ }
+    }
+
+    function renderClosedCard() {
+      if (!closedData) return;
+      const el = document.getElementById('s-closed');
+      const sub = document.getElementById('s-closed-sub');
+      if (!el || !sub) return;
+
+      el.textContent = closedData.closed_today;
+      sub.innerHTML = `Vandaag: <strong>${closedData.closed_today}</strong> · Week: <strong>${closedData.closed_week}</strong> · Maand: <strong>${closedData.closed_month}</strong>`;
+
+      const tsEl = document.getElementById('closedUpdated');
+      if (tsEl && closedData.fetched_at) {
+        tsEl.textContent = `Gesloten: ${fmt(closedData.fetched_at)}`;
+      }
+    }
+
+    function renderNetIndicator(newToday) {
+      if (!closedData) return;
+      const net = closedData.closed_today - newToday;
+      const el = document.getElementById('s-closed');
+      if (!el) return;
+      let arrow, cls;
+      if (net > 0) {
+        arrow = `▲ +${net}`;
+        cls = 'net-positive';
+      } else if (net < 0) {
+        arrow = `▼ ${net}`;
+        cls = 'net-negative';
+      } else {
+        arrow = '● 0';
+        cls = 'net-neutral';
+      }
+      el.innerHTML = `${closedData.closed_today} <span class="net-indicator ${cls}">${arrow}</span>`;
     }
     function esc(s) {
       return String(s)
@@ -666,6 +712,8 @@
       document.getElementById('s-new').textContent      = summary.new;
       document.getElementById('s-assigned').textContent = summary.assigned;
       document.getElementById('summary').style.display  = '';
+      renderClosedCard();
+      renderNetIndicator(summary.new_today || 0);
 
       /* Destroy old chart before rebuilding DOM */
       if (trendChart) { trendChart.destroy(); trendChart = null; }
@@ -748,6 +796,7 @@
         const data = await res.json();
         if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
         render(data);
+        loadClosedData().then(() => renderNetIndicator(data.summary.new_today || 0));
       } catch (err) {
         document.getElementById('main').innerHTML = `
           <div class="state-box">
@@ -761,7 +810,9 @@
     }
 
     loadDashboard();
+    loadClosedData();
     setInterval(loadDashboard, 5 * 60 * 1000);
+    setInterval(loadClosedData, 30 * 60 * 1000);
   </script>
 </body>
 </html>
