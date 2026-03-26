@@ -79,6 +79,29 @@ class TrengoClient:
         """Haal alle tickets op met een bepaalde status."""
         return self._get_paginated("tickets", {"status": status})
 
+    def get_closed_tickets(self) -> List[Dict]:
+        """Haal alle gesloten tickets op van de afgelopen 90 dagen."""
+        closed = self._get_paginated("tickets", {"status": "CLOSED"})
+        now_utc = datetime.now(timezone.utc)
+        result = []
+        for ticket in closed:
+            if not isinstance(ticket, dict):
+                continue
+            closed_at_raw = ticket.get("closed_at")
+            if not closed_at_raw:
+                continue
+            try:
+                closed_str = str(closed_at_raw).replace("Z", "+00:00")
+                closed_at = datetime.fromisoformat(closed_str)
+                if closed_at.tzinfo is None:
+                    closed_at = closed_at.replace(tzinfo=timezone.utc)
+                age_days = (now_utc - closed_at).total_seconds() / 86400
+                if age_days <= 90:
+                    result.append(ticket)
+            except (ValueError, TypeError):
+                continue
+        return result
+
     def get_dashboard_data(self) -> Dict:
         """Compileer alle dashboard statistieken."""
         # Teams en gebruikers ophalen
