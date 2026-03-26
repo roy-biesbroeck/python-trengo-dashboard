@@ -88,7 +88,7 @@
     /* ── Summary strip ───────────────────────────────── */
     .summary-grid {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: .75rem;
       flex-shrink: 0;
     }
@@ -110,6 +110,19 @@
     .card-total::before   { background: var(--blue); }
     .card-new::before     { background: var(--green); }
     .card-assigned::before{ background: var(--amber); }
+    .card-closed::before  { background: #8b5cf6; }
+    .card-closed  .card-value { color: #8b5cf6;  }
+
+    .net-indicator {
+      display: inline-block;
+      font-size: .75rem;
+      font-weight: 700;
+      margin-left: .375rem;
+      vertical-align: middle;
+    }
+    .net-positive { color: var(--green); }
+    .net-negative { color: var(--red); }
+    .net-neutral  { color: var(--muted); }
 
     .card-label {
       font-size: .625rem;
@@ -421,6 +434,11 @@
       <div class="card-label">Toegewezen</div>
       <div class="card-value" id="s-assigned">–</div>
       <div class="card-sub">Gekoppeld aan persoon</div>
+    </div>
+    <div class="summary-card card-closed">
+      <div class="card-label">Gesloten</div>
+      <div class="card-value" id="s-closed">–</div>
+      <div class="card-sub" id="s-closed-sub">Vandaag / week / maand</div>
     </div>
   </div>
 
