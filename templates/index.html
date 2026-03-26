@@ -641,6 +641,12 @@
           hour: '2-digit', minute: '2-digit',
         })
       );
+      const closedDailyCounts = closedData && closedData.daily_counts ? closedData.daily_counts : {};
+      const closedValues = filtered.map(d => {
+        const dateKey = new Date(d.ts).toLocaleDateString('sv-SE');
+        return closedDailyCounts[dateKey] || 0;
+      });
+
       const datasets = [
         {
           label: 'Totaal',
@@ -659,6 +665,13 @@
           data: filtered.map(d => d.assigned),
           borderColor: '#d97706', backgroundColor: 'transparent',
           tension: .35, fill: false, pointRadius: ptRadius, borderWidth: 2,
+        },
+        {
+          label: 'Gesloten',
+          data: closedValues,
+          borderColor: '#8b5cf6', backgroundColor: 'transparent',
+          tension: .35, fill: false, pointRadius: ptRadius, borderWidth: 2,
+          borderDash: [4, 2],
         },
       ];
 
