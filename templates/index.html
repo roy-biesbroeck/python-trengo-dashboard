@@ -398,6 +398,22 @@
       line-height: 1.4;
     }
 
+    /* ── Autoclose status ───────────────────────────── */
+    .autoclose-status {
+      font-size: .625rem;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      padding: .15rem .5rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      background: var(--card);
+    }
+    .autoclose-status > * + * { margin-left: .3rem; }
+    .autoclose-status.has-activity { border-color: var(--purple); color: var(--purple); }
+    .autoclose-status.is-dry-run { border-color: var(--amber); color: var(--amber); }
+
     /* ── Focus indicators ──────────────────────────── */
     :focus-visible {
       outline: none;
@@ -545,6 +561,7 @@
     <div class="header-right">
       <span class="last-updated" id="lastUpdated" aria-live="polite"></span>
       <span class="last-updated" id="closedUpdated"></span>
+      <span class="autoclose-status" id="autocloseStatus" style="display:none"></span>
       <button class="btn-refresh" id="refreshBtn" onclick="loadDashboard()">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -662,6 +679,33 @@
       }
       el.innerHTML = `<div class="net-indicator ${cls}"><span class="net-pill">${arrow}</span><span class="net-label">${label}</span></div>`;
     }
+
+    async function loadAutocloseStatus() {
+      try {
+        const res = await fetch('/api/autoclose');
+        if (!res.ok) return;
+        const data = await res.json();
+        const el = document.getElementById('autocloseStatus');
+        if (!el || !data.result) return;
+
+        const r = data.result;
+        const count = r.closed_ids ? r.closed_ids.length : 0;
+        const wouldCount = r.would_close_ids ? r.would_close_ids.length : 0;
+
+        if (r.dry_run && wouldCount > 0) {
+          el.textContent = 'Autoclose: ' + wouldCount + ' (dry run)';
+          el.className = 'autoclose-status is-dry-run';
+          el.style.display = '';
+        } else if (count > 0) {
+          el.textContent = 'Autoclose: ' + count + ' gesloten';
+          el.className = 'autoclose-status has-activity';
+          el.style.display = '';
+        } else {
+          el.style.display = 'none';
+        }
+      } catch (e) { /* silent */ }
+    }
+
     function esc(s) {
       return String(s)
         .replace(/&/g,'&amp;').replace(/</g,'&lt;')
@@ -962,6 +1006,7 @@
         </div>`;
 
       loadTrendChart();
+      loadAutocloseStatus();
     }
 
     async function loadDashboard() {
@@ -990,6 +1035,7 @@
     loadDashboard();
     setInterval(loadDashboard, 5 * 60 * 1000);
     setInterval(loadClosedData, 30 * 60 * 1000);
+    setInterval(loadAutocloseStatus, 30 * 60 * 1000);
   </script>
 </body>
 </html>
