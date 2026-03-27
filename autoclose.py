@@ -53,3 +53,85 @@ def find_ruijie_duplicates(tickets: List[Dict]) -> Tuple[Optional[int], List[int
     close_ids = [tid for tid, _ in ruijie[1:]]
 
     return keep_id, close_ids
+
+
+# In-memory state for dashboard display
+_last_result = {"ts": None, "result": None}
+
+
+def get_last_result() -> Dict:
+    """Return the last autoclose run result for dashboard display."""
+    return _last_result.copy()
+
+
+def run_autoclose(
+    client: TrengoClient = None,
+    dry_run: bool = None,
+    max_per_run: int = None,
+) -> Dict:
+    """Run the Ruijie auto-close cycle.
+
+    Returns a dict with: kept, closed_ids, would_close_ids, dry_run, capped, error.
+    """
+    if dry_run is None:
+        dry_run = DRY_RUN
+    if max_per_run is None:
+        max_per_run = MAX_CLOSE_PER_RUN
+    if client is None:
+        client = TrengoClient()
+
+    result = {
+        "kept": None,
+        "closed_ids": [],
+        "would_close_ids": [],
+        "dry_run": dry_run,
+        "capped": False,
+        "error": None,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    }
+
+    try:
+        open_tickets = client.get_tickets("OPEN")
+        assigned_tickets = client.get_tickets("ASSIGNED")
+        all_tickets = open_tickets + assigned_tickets
+
+        keep_id, close_ids = find_ruijie_duplicates(all_tickets)
+        result["kept"] = keep_id
+
+        if not close_ids:
+            logger.info("Geen Ruijie duplicaten gevonden.")
+            _last_result["ts"] = result["ts"]
+            _last_result["result"] = result
+            return result
+
+        # Apply cap
+        if len(close_ids) > max_per_run:
+            logger.warning(
+                f"Limiet bereikt: {len(close_ids)} duplicaten gevonden, "
+                f"maximaal {max_per_run} per keer."
+            )
+            close_ids = close_ids[:max_per_run]
+            result["capped"] = True
+
+        if dry_run:
+            result["would_close_ids"] = close_ids
+            logger.info(
+                f"DRY RUN: zou {len(close_ids)} tickets sluiten: {close_ids}. "
+                f"Bewaard: #{keep_id}"
+            )
+        else:
+            for tid in close_ids:
+                success = client.close_ticket(tid)
+                if success:
+                    result["closed_ids"].append(tid)
+                    logger.info(f"Ticket #{tid} gesloten (bewaard: #{keep_id})")
+                else:
+                    logger.error(f"Kon ticket #{tid} niet sluiten")
+
+    except Exception as e:
+        result["error"] = str(e)
+        logger.error(f"Autoclose fout: {e}")
+
+    _last_result["ts"] = result["ts"]
+    _last_result["result"] = result
+    return result
