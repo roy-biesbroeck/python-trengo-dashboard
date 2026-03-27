@@ -388,6 +388,72 @@
       }
     }
 
+    /* ── Responsive: tablet (<1024px) ───────────────── */
+    @media (max-width: 1023px) {
+      body {
+        height: auto;
+        min-height: 100dvh;
+        overflow: auto;
+        padding: .75rem 1rem .75rem;
+      }
+
+      .summary-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .main-grid {
+        grid-template-columns: 1fr 1fr;
+        height: auto;
+      }
+
+      /* Ticket age + trend column spans full width below the two data columns */
+      .main-grid > .col:last-child {
+        grid-column: 1 / -1;
+      }
+
+      #main { overflow: visible; }
+      .data-card { max-height: 50vh; }
+    }
+
+    /* ── Responsive: mobile (<640px) ─────────────────── */
+    @media (max-width: 639px) {
+      body { padding: .5rem .75rem .5rem; gap: .5rem; }
+
+      .header { flex-wrap: wrap; gap: .375rem; }
+      .header h1 { font-size: 1rem; }
+      .header-right { width: 100%; justify-content: space-between; }
+
+      .summary-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: .5rem;
+      }
+      .card-value { font-size: 1.5rem; }
+      .card-label { font-size: .5625rem; }
+      .card-sub { font-size: .625rem; }
+
+      .main-grid {
+        grid-template-columns: 1fr;
+        gap: .625rem;
+      }
+      .main-grid > .col:last-child { grid-column: auto; }
+
+      .data-card { max-height: 40vh; }
+
+      .data-head.t-head,
+      .team-row {
+        grid-template-columns: 1fr 56px 48px 48px;
+        padding: .5rem .75rem;
+        font-size: .8125rem;
+      }
+
+      .data-head.u-head,
+      .user-row {
+        padding: .4375rem .75rem;
+      }
+
+      .footer { font-size: .5625rem; }
+    }
+
     /* ── Trend chart card ────────────────────────────── */
     .trend-card {
       flex: 1;
