@@ -35,6 +35,7 @@
     }
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    button { font: inherit; }
 
     html, body { height: 100%; }
 
@@ -88,7 +89,8 @@
       transition: background .15s, color .15s, border-color .15s;
     }
     .btn-refresh:hover    { background: var(--blue); color: var(--card); border-color: var(--blue); }
-    .btn-refresh:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-refresh:active   { transform: scale(.97); }
+    .btn-refresh:disabled { opacity: .5; cursor: not-allowed; pointer-events: none; }
     .btn-refresh.spinning svg { animation: spin .7s linear infinite; }
 
     /* ── Summary strip ───────────────────────────────── */
@@ -143,6 +145,7 @@
       font-weight: 800;
       line-height: 1;
       letter-spacing: -.04em;
+      font-variant-numeric: tabular-nums;
     }
     .card-total   .card-value { color: var(--blue);  }
     .card-new     .card-value { color: var(--green); }
@@ -176,6 +179,7 @@
       margin-bottom: .5rem;
     }
     .section-title { font-size: .875rem; font-weight: 700; }
+    .section-header-gap { margin-top: .625rem; }
     .section-badge {
       font-size: .6875rem; font-weight: 600;
       color: var(--muted); background: var(--border);
@@ -230,7 +234,7 @@
     .team-row:last-child { border-bottom: none; }
     .team-row:hover { background: var(--hover); }
 
-    .team-name-wrap { display: flex; align-items: center; gap: .5rem; }
+    .team-name-wrap { display: flex; align-items: center; gap: .5rem; overflow: hidden; min-width: 0; }
     .dot {
       width: 7px; height: 7px;
       border-radius: 50%;
@@ -238,10 +242,13 @@
       flex-shrink: 0;
     }
     .dot.has-new { background: var(--green); }
-    .team-name { font-weight: 600; font-size: .875rem; }
+    .team-name {
+      font-weight: 600; font-size: .875rem;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
 
     .col-r { text-align: right; }
-    .num { font-size: 1rem; font-weight: 700; }
+    .num { font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
     .num.n-total    { color: var(--blue);  }
     .num.n-new      { color: var(--green); }
     .num.n-assigned { color: var(--amber); }
@@ -368,7 +375,7 @@
       font-size: .6875rem;
       color: var(--muted);
       text-align: center;
-      line-height: 1;
+      line-height: 1.4;
     }
 
     /* ── Focus indicators ──────────────────────────── */
@@ -485,6 +492,7 @@
     }
     .trend-btn + .trend-btn { margin-left: .3rem; }
     .trend-btn:hover  { background: var(--bg); color: var(--text); }
+    .trend-btn:active { transform: scale(.95); }
     .trend-btn.active { background: var(--blue); color: var(--card); border-color: var(--blue); }
     .trend-no-data {
       flex: 1;
@@ -759,6 +767,7 @@
       const cAmber  = cssVar('--amber');
       const cPurple = cssVar('--purple');
       const cBorder = cssVar('--border');
+      const cMuted  = cssVar('--muted');
 
       const datasets = [
         {
@@ -803,7 +812,7 @@
           plugins: {
             legend: {
               position: 'top',
-              labels: { font: { size: 10 }, boxWidth: 8, padding: 10 },
+              labels: { font: { size: 10 }, boxWidth: 8, padding: 10, color: cMuted },
             },
           },
           scales: {
@@ -811,6 +820,7 @@
               ticks: {
                 font: { size: 9 }, maxRotation: 30,
                 autoSkip: true, maxTicksLimit: 8,
+                color: cMuted,
               },
               grid: { display: false },
             },
@@ -819,6 +829,7 @@
               ticks: {
                 stepSize: 1, font: { size: 9 },
                 callback: v => Number.isInteger(v) ? v : null,
+                color: cMuted,
               },
               grid: { color: cBorder + '66' },
             },
@@ -890,7 +901,7 @@
               ${age_buckets ? renderAge(age_buckets, summary.total) : '<div class="empty">Geen data</div>'}
             </div>
 
-            <div class="section-header" style="margin-top:.625rem">
+            <div class="section-header section-header-gap">
               <span class="section-title">Ticket trend</span>
               <div>
                 <button class="trend-btn active" id="trend-7d"  onclick="setTrendRange(7)">7d</button>
