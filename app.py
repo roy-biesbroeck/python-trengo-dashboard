@@ -4,6 +4,8 @@ from datetime import datetime, timezone, timedelta
 
 from flask import Flask, render_template, jsonify
 from trengo_client import TrengoClient, parse_datetime
+from apscheduler.schedulers.background import BackgroundScheduler
+from autoclose import run_autoclose, get_last_result
 
 app = Flask(__name__)
 
@@ -172,6 +174,31 @@ def closed():
         return jsonify({"error": str(e)}), 500
     except Exception as e:
         return jsonify({"error": f"Onverwachte fout: {str(e)}"}), 500
+
+
+# ── Autoclose scheduler ─────────────────────────────
+scheduler = BackgroundScheduler(daemon=True)
+scheduler.add_job(run_autoclose, "interval", minutes=30, id="ruijie_autoclose")
+scheduler.start()
+
+
+@app.route("/api/autoclose")
+def autoclose_status():
+    """Return the last autoclose run result."""
+    try:
+        return jsonify(get_last_result())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/autoclose/run", methods=["POST"])
+def autoclose_trigger():
+    """Manually trigger an autoclose run."""
+    try:
+        result = run_autoclose()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
