@@ -109,6 +109,21 @@ class TrengoClient:
                 result.append(ticket)
         return result
 
+    def close_ticket(self, ticket_id: int) -> bool:
+        """Sluit een ticket via de Trengo API. Retourneert True bij succes."""
+        try:
+            response = requests.post(
+                f"{self.base_url}/tickets/{ticket_id}/close",
+                headers=self.headers,
+                json={},
+                timeout=15,
+            )
+            response.raise_for_status()
+            return True
+        except Exception as e:
+            print(f"Fout bij sluiten ticket {ticket_id}: {e}")
+            return False
+
     def get_dashboard_data(self) -> Dict:
         """Compileer alle dashboard statistieken."""
         # Teams en gebruikers ophalen
