@@ -21,6 +21,9 @@
       --shadow:   0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.05);
       --radius:   .75rem;
       --focus:    0 0 0 2px var(--card), 0 0 0 4px var(--blue);
+      --hover:    #f8fafc;
+      --error-bg: #fef2f2;
+      --error-border: #fecaca;
 
       /* Age colours: fresh → stale */
       --age-0: #3b82f6;
@@ -84,7 +87,7 @@
       box-shadow: var(--shadow);
       transition: background .15s, color .15s, border-color .15s;
     }
-    .btn-refresh:hover    { background: var(--blue); color: #fff; border-color: var(--blue); }
+    .btn-refresh:hover    { background: var(--blue); color: var(--card); border-color: var(--blue); }
     .btn-refresh:disabled { opacity: .5; cursor: not-allowed; }
     .btn-refresh.spinning svg { animation: spin .7s linear infinite; }
 
@@ -193,7 +196,7 @@
     }
     .data-head {
       flex-shrink: 0;
-      background: #f8fafc;
+      background: var(--hover);
       border-bottom: 1px solid var(--border);
       font-size: .625rem;
       font-weight: 700;
@@ -225,7 +228,7 @@
       transition: background .1s;
     }
     .team-row:last-child { border-bottom: none; }
-    .team-row:hover { background: #f8fafc; }
+    .team-row:hover { background: var(--hover); }
 
     .team-name-wrap { display: flex; align-items: center; gap: .5rem; }
     .dot {
@@ -265,7 +268,7 @@
       transition: background .1s;
     }
     .user-row:last-child { border-bottom: none; }
-    .user-row:hover { background: #f8fafc; }
+    .user-row:hover { background: var(--hover); }
 
     .user-name-wrap { display: flex; align-items: center; gap: .5rem; overflow: hidden; }
     .avatar {
@@ -273,7 +276,7 @@
       border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
       font-size: .5625rem; font-weight: 700;
-      color: #fff; flex-shrink: 0;
+      color: var(--card); flex-shrink: 0;
       letter-spacing: .02em;
     }
     .user-name {
@@ -346,7 +349,7 @@
       animation: spin .7s linear infinite;
     }
     .error-box {
-      background: #fef2f2; border: 1px solid #fecaca;
+      background: var(--error-bg); border: 1px solid var(--error-border);
       color: var(--red); padding: 1rem 1.25rem;
       border-radius: var(--radius); font-size: .875rem;
     }
@@ -416,7 +419,7 @@
     }
     .trend-btn + .trend-btn { margin-left: .3rem; }
     .trend-btn:hover  { background: var(--bg); color: var(--text); }
-    .trend-btn.active { background: var(--blue); color: #fff; border-color: var(--blue); }
+    .trend-btn.active { background: var(--blue); color: var(--card); border-color: var(--blue); }
     .trend-no-data {
       flex: 1;
       display: flex; align-items: center; justify-content: center;
@@ -488,6 +491,10 @@
     ];
     const AGE_COLORS = ['var(--age-0)','var(--age-1)','var(--age-2)',
                         'var(--age-3)','var(--age-4)','var(--age-5)'];
+
+    function cssVar(name) {
+      return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
 
     function fmt(iso) {
       return new Date(iso).toLocaleTimeString('nl-NL', {
@@ -681,29 +688,35 @@
         return closedDailyCounts[dateKey] || 0;
       });
 
+      const cBlue   = cssVar('--blue');
+      const cGreen  = cssVar('--green');
+      const cAmber  = cssVar('--amber');
+      const cPurple = cssVar('--purple');
+      const cBorder = cssVar('--border');
+
       const datasets = [
         {
           label: 'Totaal',
           data: filtered.map(d => d.total),
-          borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,.08)',
+          borderColor: cBlue, backgroundColor: cBlue + '14',
           tension: .35, fill: true, pointRadius: ptRadius, borderWidth: 2,
         },
         {
           label: 'Nieuw',
           data: filtered.map(d => d.open),
-          borderColor: '#16a34a', backgroundColor: 'transparent',
+          borderColor: cGreen, backgroundColor: 'transparent',
           tension: .35, fill: false, pointRadius: ptRadius, borderWidth: 2,
         },
         {
           label: 'Toegewezen',
           data: filtered.map(d => d.assigned),
-          borderColor: '#d97706', backgroundColor: 'transparent',
+          borderColor: cAmber, backgroundColor: 'transparent',
           tension: .35, fill: false, pointRadius: ptRadius, borderWidth: 2,
         },
         {
           label: 'Gesloten',
           data: closedValues,
-          borderColor: '#8b5cf6', backgroundColor: 'transparent',
+          borderColor: cPurple, backgroundColor: 'transparent',
           tension: .35, fill: false, pointRadius: ptRadius, borderWidth: 2,
           borderDash: [4, 2],
         },
@@ -741,7 +754,7 @@
                 stepSize: 1, font: { size: 9 },
                 callback: v => Number.isInteger(v) ? v : null,
               },
-              grid: { color: 'rgba(0,0,0,.04)' },
+              grid: { color: cBorder + '66' },
             },
           },
         },
