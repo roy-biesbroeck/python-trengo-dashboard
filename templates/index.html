@@ -24,6 +24,8 @@
       --hover:    #f8fafc;
       --error-bg: #fef2f2;
       --error-border: #fecaca;
+      --success-bg: #dcfce7;
+      --success-text: #15803d;
 
       /* Age colours: fresh → stale */
       --age-0: #3b82f6;
@@ -122,15 +124,28 @@
     .card-closed  .card-value { color: var(--purple);  }
 
     .net-indicator {
-      display: inline-block;
-      font-size: .75rem;
+      display: flex;
+      align-items: center;
+      gap: .25rem;
+      font-size: .6875rem;
       font-weight: 700;
-      margin-left: .375rem;
-      vertical-align: middle;
+      margin-top: .375rem;
+      line-height: 1;
     }
-    .net-positive { color: var(--green); }
-    .net-negative { color: var(--red); }
-    .net-neutral  { color: var(--muted); }
+    .net-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: .2rem;
+      padding: .125rem .4rem;
+      border-radius: 999px;
+      font-size: .625rem;
+      font-weight: 700;
+      letter-spacing: .02em;
+    }
+    .net-positive .net-pill { background: var(--success-bg); color: var(--success-text); }
+    .net-negative .net-pill { background: var(--error-bg); color: var(--red); }
+    .net-neutral  .net-pill { background: var(--border); color: var(--muted); }
+    .net-label { color: var(--muted); font-weight: 500; }
 
     .card-label {
       font-size: .625rem;
@@ -543,19 +558,20 @@
     <div class="summary-card card-closed">
       <div class="card-label">Gesloten</div>
       <div class="card-value" id="s-closed">–</div>
-      <div class="card-sub" id="s-closed-sub">Vandaag / week / maand</div>
+      <div class="card-sub" id="s-closed-sub">dag / week / maand</div>
+      <div id="s-closed-net"></div>
     </div>
   </div>
 
   <div id="main">
     <div class="state-box">
       <div class="spinner-ring"></div>
-      <span>Dashboard laden…</span>
+      <span>Gegevens ophalen…</span>
     </div>
   </div>
 
   <div class="footer">
-    Auto-refresh elke 5 min &nbsp;·&nbsp; Gesloten data elke 30 min &nbsp;·&nbsp; OPEN = niet toegewezen &nbsp;·&nbsp; ASSIGNED = gekoppeld aan agent
+    Ververst elke 5 min &nbsp;·&nbsp; Nieuw = niet toegewezen &nbsp;·&nbsp; Toegewezen = gekoppeld aan agent
   </div>
 
   <script>
@@ -600,7 +616,7 @@
       if (!el || !sub) return;
 
       el.textContent = closedData.closed_today;
-      sub.innerHTML = `Vandaag: <strong>${esc(String(closedData.closed_today))}</strong> · Week: <strong>${esc(String(closedData.closed_week))}</strong> · Maand: <strong>${esc(String(closedData.closed_month))}</strong>`;
+      sub.textContent = `${esc(String(closedData.closed_today))} / ${esc(String(closedData.closed_week))} / ${esc(String(closedData.closed_month))}`;
 
       const tsEl = document.getElementById('closedUpdated');
       if (tsEl && closedData.fetched_at) {
@@ -611,20 +627,23 @@
     function renderNetIndicator(newToday) {
       if (!closedData) return;
       const net = closedData.closed_today - newToday;
-      const el = document.getElementById('s-closed');
+      const el = document.getElementById('s-closed-net');
       if (!el) return;
-      let arrow, cls;
+      let arrow, cls, label;
       if (net > 0) {
         arrow = `▲ +${net}`;
         cls = 'net-positive';
+        label = 'netto gesloten';
       } else if (net < 0) {
         arrow = `▼ ${net}`;
         cls = 'net-negative';
+        label = 'netto open';
       } else {
-        arrow = '● 0';
+        arrow = '= 0';
         cls = 'net-neutral';
+        label = 'netto gelijk';
       }
-      el.innerHTML = `${closedData.closed_today} <span class="net-indicator ${cls}">${arrow}</span>`;
+      el.innerHTML = `<div class="net-indicator ${cls}"><span class="net-pill">${arrow}</span><span class="net-label">${label}</span></div>`;
     }
     function esc(s) {
       return String(s)
@@ -643,7 +662,7 @@
 
     function renderTeams(teams) {
       if (!teams.length)
-        return `<div class="empty">Geen teamdata beschikbaar</div>`;
+        return `<div class="empty">Geen teams gevonden</div>`;
       const max = Math.max(...teams.map(t => t.total), 1);
       return teams.map(t => {
         const pct = Math.round(t.total / max * 100);
@@ -666,7 +685,7 @@
 
     function renderUsers(users) {
       if (!users || !users.length)
-        return `<div class="empty">Geen medewerkers met open tickets</div>`;
+        return `<div class="empty">Alle tickets zijn verdeeld!</div>`;
       const max = Math.max(...users.map(u => u.assigned), 1);
       return users.map(u => {
         const pct = Math.round(u.assigned / max * 100);
