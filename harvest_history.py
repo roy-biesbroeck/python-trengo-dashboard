@@ -1,7 +1,7 @@
 """One-time harvest of historical customer label data.
 
-Fetches closed tickets from Trengo, groups by customer, counts label
-usage, and saves to the customer label history cache.
+Fetches closed tickets from Trengo, parses label events from ticket
+messages, groups by customer, counts labels, and saves to cache.
 
 Usage:
     python harvest_history.py
@@ -9,13 +9,13 @@ Usage:
 
 import json
 import os
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Dict, List
 
 from trengo_client import TrengoClient
-from label_config import MANUAL_ONLY_LABELS
+from label_config import MANUAL_ONLY_LABELS, is_internal_contact
+from label_history_parser import get_ever_applied_labels
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 DEFAULT_CACHE_FILE = os.path.join(DATA_DIR, "customer_label_history.json")
@@ -31,6 +31,13 @@ def _get_contact_id(ticket: Dict):
     return None
 
 
+def _get_contact_name(ticket: Dict) -> str:
+    contact = ticket.get("contact")
+    if isinstance(contact, dict):
+        return contact.get("name", "Onbekend")
+    return "Onbekend"
+
+
 def _group_tickets_by_contact(tickets: List[Dict]) -> Dict[int, List[Dict]]:
     groups: Dict[int, List[Dict]] = {}
     for ticket in tickets:
@@ -41,19 +48,6 @@ def _group_tickets_by_contact(tickets: List[Dict]) -> Dict[int, List[Dict]]:
             groups[contact_id] = []
         groups[contact_id].append(ticket)
     return groups
-
-
-def _count_labels(tickets: List[Dict]) -> Dict[str, int]:
-    counts: Dict[str, int] = {}
-    for ticket in tickets:
-        labels = ticket.get("labels", [])
-        if not labels:
-            continue
-        for label in labels:
-            name = label.get("name", "")
-            if name and name not in MANUAL_ONLY_LABELS:
-                counts[name] = counts.get(name, 0) + 1
-    return counts
 
 
 def harvest_customer_history(
@@ -71,43 +65,57 @@ def harvest_customer_history(
     closed_tickets = client.get_closed_tickets()
     print(f"  {len(closed_tickets)} gesloten tickets opgehaald")
 
-    tickets_without_labels = [
-        t for t in closed_tickets if not t.get("labels")
-    ]
-    if tickets_without_labels:
-        total = len(tickets_without_labels)
-        print(f"  Labels ophalen voor {total} tickets (5 parallel)...")
+    # Fetch messages for each ticket to parse label events
+    total = len(closed_tickets)
+    if total > 0:
+        print(f"  Berichten ophalen voor {total} tickets (5 parallel)...")
         done = 0
 
-        def fetch_labels(ticket):
-            return ticket["id"], client.get_ticket_labels(ticket["id"])
+        def fetch_messages(ticket):
+            return ticket["id"], client.get_ticket_messages(ticket["id"])
 
+        ticket_messages: Dict[int, list] = {}
         with ThreadPoolExecutor(max_workers=5) as pool:
-            futures = {pool.submit(fetch_labels, t): t for t in tickets_without_labels}
+            futures = {pool.submit(fetch_messages, t): t for t in closed_tickets}
             for future in as_completed(futures):
-                ticket = futures[future]
-                ticket_id, labels = future.result()
-                ticket["labels"] = labels
+                tid, messages = future.result()
+                ticket_messages[tid] = messages
                 done += 1
                 if done % 100 == 0:
                     print(f"    {done}/{total} verwerkt...")
+    else:
+        ticket_messages = {}
 
+    # Parse label events from messages
+    print("  Label events parsen...")
+    ticket_labels: Dict[int, set] = {}
+    for ticket in closed_tickets:
+        tid = ticket["id"]
+        messages = ticket_messages.get(tid, [])
+        labels = get_ever_applied_labels(messages)
+        labels = {l for l in labels if l not in MANUAL_ONLY_LABELS}
+        ticket_labels[tid] = labels
+
+    # Group by contact, exclude internal contacts
     groups = _group_tickets_by_contact(closed_tickets)
-    print(f"  {len(groups)} unieke klanten gevonden")
+    print(f"  {len(groups)} unieke contacten gevonden")
 
     cache: Dict = {}
+    internal_skipped = 0
     for contact_id, tickets in groups.items():
-        label_counts = _count_labels(tickets)
+        contact_name = _get_contact_name(tickets[0])
+        if is_internal_contact(name=contact_name):
+            internal_skipped += 1
+            continue
+
+        label_counts: Dict[str, int] = {}
+        for ticket in tickets:
+            for label in ticket_labels.get(ticket["id"], set()):
+                label_counts[label] = label_counts.get(label, 0) + 1
+
         if label_counts:
-            # Get customer name from the first ticket's contact data
-            customer_name = "Onbekend"
-            for t in tickets:
-                contact = t.get("contact")
-                if isinstance(contact, dict) and contact.get("name"):
-                    customer_name = contact["name"]
-                    break
             cache[str(contact_id)] = {
-                "customer_name": customer_name,
+                "customer_name": contact_name,
                 "label_counts": label_counts,
                 "ticket_count": len(tickets),
                 "cached_at": datetime.now(timezone.utc).isoformat(),
@@ -119,12 +127,14 @@ def harvest_customer_history(
     result = {
         "customers_processed": len(groups),
         "customers_with_labels": len(cache),
+        "internal_skipped": internal_skipped,
         "tickets_processed": len(closed_tickets),
         "cache_file": cache_file,
     }
 
     print(f"\nKlaar!")
-    print(f"  {result['customers_processed']} klanten verwerkt")
+    print(f"  {result['customers_processed']} contacten verwerkt")
+    print(f"  {result['internal_skipped']} interne contacten overgeslagen")
     print(f"  {result['customers_with_labels']} klanten met labels opgeslagen")
     print(f"  Cache opgeslagen in {cache_file}")
 
