@@ -124,6 +124,44 @@ class TrengoClient:
             print(f"Fout bij sluiten ticket {ticket_id}: {e}")
             return False
 
+    def get_ticket_messages(self, ticket_id: int) -> List[Dict]:
+        """Haal alle berichten op van een ticket."""
+        return self._get_paginated(f"tickets/{ticket_id}/messages")
+
+    def get_ticket_labels(self, ticket_id: int) -> List[Dict]:
+        """Haal alle labels op die aan een ticket hangen."""
+        try:
+            response = requests.get(
+                f"{self.base_url}/tickets/{ticket_id}/labels",
+                headers=self.headers,
+                timeout=15,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data.get("data", []) if isinstance(data, dict) else data
+        except Exception as e:
+            print(f"Fout bij ophalen labels voor ticket {ticket_id}: {e}")
+            return []
+
+    def attach_label(self, ticket_id: int, label_id: int) -> bool:
+        """Koppel een label aan een ticket. Retourneert True bij succes."""
+        try:
+            response = requests.post(
+                f"{self.base_url}/tickets/{ticket_id}/labels",
+                headers=self.headers,
+                json={"label_id": label_id},
+                timeout=15,
+            )
+            response.raise_for_status()
+            return True
+        except Exception as e:
+            print(f"Fout bij koppelen label {label_id} aan ticket {ticket_id}: {e}")
+            return False
+
+    def get_labels(self) -> List[Dict]:
+        """Haal alle labels op."""
+        return self._get_paginated("labels")
+
     def get_dashboard_data(self) -> Dict:
         """Compileer alle dashboard statistieken."""
         # Teams en gebruikers ophalen
