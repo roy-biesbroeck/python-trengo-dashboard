@@ -35,8 +35,9 @@ function renderCustomers(customers) {
         return;
     }
     listEl.innerHTML = customers.map(function(c) {
+        var name = c.customer_name && c.customer_name !== 'Onbekend' ? escapeHtml(c.customer_name) : 'Klant #' + c.contact_id;
         return '<div class="customer-card"><div class="customer-header">' +
-            '<span class="customer-id">Klant #' + c.contact_id + '</span>' +
+            '<span class="customer-id">' + name + '</span>' +
             '<span class="customer-ticket-count">' + c.ticket_count + ' tickets</span>' +
             '</div><div class="label-pills">' +
             c.top_labels.map(function(l) {
@@ -57,6 +58,7 @@ function filterCustomers() {
     }
     var filtered = allCustomers.filter(function(c) {
         if (String(c.contact_id).indexOf(query) >= 0) return true;
+        if (c.customer_name && c.customer_name.toLowerCase().indexOf(query) >= 0) return true;
         return c.top_labels.some(function(l) { return l.name.toLowerCase().indexOf(query) >= 0; });
     });
     renderCustomers(filtered);

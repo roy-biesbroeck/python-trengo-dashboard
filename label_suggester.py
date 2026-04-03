@@ -611,6 +611,7 @@ def get_customer_overview() -> List[Dict]:
 
         customers.append({
             "contact_id": int(contact_id),
+            "customer_name": data.get("customer_name", "Onbekend"),
             "label_counts": label_counts,
             "ticket_count": data.get("ticket_count", 0),
             "top_labels": top_labels,

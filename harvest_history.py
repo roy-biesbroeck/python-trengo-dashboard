@@ -88,7 +88,15 @@ def harvest_customer_history(
     for contact_id, tickets in groups.items():
         label_counts = _count_labels(tickets)
         if label_counts:
+            # Get customer name from the first ticket's contact data
+            customer_name = "Onbekend"
+            for t in tickets:
+                contact = t.get("contact")
+                if isinstance(contact, dict) and contact.get("name"):
+                    customer_name = contact["name"]
+                    break
             cache[str(contact_id)] = {
+                "customer_name": customer_name,
                 "label_counts": label_counts,
                 "ticket_count": len(tickets),
                 "cached_at": datetime.now(timezone.utc).isoformat(),
