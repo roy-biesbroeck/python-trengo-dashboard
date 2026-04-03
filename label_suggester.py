@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from trengo_client import TrengoClient
-from label_config import MANUAL_ONLY_LABELS, ROUTE_LABELS, SUGGESTABLE_LABELS
+from label_config import MANUAL_ONLY_LABELS, ROUTE_LABELS, SUGGESTABLE_LABELS, get_label_definitions_prompt
 
 logger = logging.getLogger("label_suggester")
 logger.setLevel(logging.INFO)
@@ -109,3 +109,80 @@ def get_customer_label_history(
     _save_history_cache(cache)
 
     return label_counts
+
+
+# ── Layer 2: GPT-4o-mini Content Classification ─────────
+
+_openai_client = None
+
+
+def _get_openai_client():
+    """Lazy-init the OpenAI client."""
+    global _openai_client
+    if _openai_client is None:
+        from openai import OpenAI
+        _openai_client = OpenAI()
+    return _openai_client
+
+
+def _build_classification_prompt(subject: str, message: str) -> str:
+    """Build the full prompt for GPT-4o-mini ticket classification."""
+    label_defs = get_label_definitions_prompt()
+    return f"""Je bent een ticket-classifier voor een Nederlands IT/kassa support bedrijf.
+Bepaal welke label(s) van toepassing zijn op dit ticket.
+
+Beschikbare labels:
+{label_defs}
+
+Regels:
+- Kies ALLEEN uit de bovenstaande labels, verzin nooit nieuwe labels
+- Geef per suggestie een confidence score van 0-100
+- Een ticket kan meerdere labels hebben (bijv. "Reparatie @klant" + "Route Kust")
+- Antwoord ALLEEN in JSON formaat
+
+Antwoord formaat:
+{{"suggestions": [{{"label": "Labelnaam", "confidence": 85, "reason": "Korte uitleg"}}]}}
+
+Ticket onderwerp: {subject}
+Ticket bericht: {message}"""
+
+
+def classify_ticket_content(subject: str, message: str) -> List[Dict]:
+    """Classify ticket content using GPT-4o-mini.
+    Returns list of dicts: [{"label": str, "confidence": int, "reason": str}]
+    Returns empty list on any error."""
+    try:
+        client = _get_openai_client()
+        prompt = _build_classification_prompt(subject, message)
+
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            max_tokens=500,
+        )
+
+        raw = response.choices[0].message.content.strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1]
+            raw = raw.rsplit("```", 1)[0]
+
+        data = json.loads(raw)
+        suggestions = data.get("suggestions", [])
+
+        valid = []
+        for s in suggestions:
+            if s.get("label") in SUGGESTABLE_LABELS:
+                valid.append({
+                    "label": s["label"],
+                    "confidence": int(s.get("confidence", 0)),
+                    "reason": s.get("reason", ""),
+                })
+        return valid
+
+    except json.JSONDecodeError:
+        logger.warning(f"Ongeldige JSON van GPT voor ticket: {subject}")
+        return []
+    except Exception as e:
+        logger.error(f"GPT classificatie fout: {e}")
+        return []
