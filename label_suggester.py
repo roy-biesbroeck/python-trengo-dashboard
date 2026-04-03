@@ -186,3 +186,89 @@ def classify_ticket_content(subject: str, message: str) -> List[Dict]:
     except Exception as e:
         logger.error(f"GPT classificatie fout: {e}")
         return []
+
+
+# ── Suggestion Combiner ──────────────────────────────
+
+ROUTE_HISTORY_STRONG_THRESHOLD = 3
+
+
+def combine_suggestions(
+    customer_history: Dict[str, int],
+    content_suggestions: List[Dict],
+    threshold: int = 70,
+) -> List[Dict]:
+    """Combine Layer 1 (history) and Layer 2 (content) suggestions.
+
+    Priority rules:
+    - Route labels: customer history wins if strong (>= 3 tickets)
+    - Non-route labels: content classification wins, boosted by history
+    - All suggestions below confidence threshold are excluded
+
+    Returns list of dicts with: label, confidence, reason, source
+    """
+    results: Dict[str, Dict] = {}
+
+    # Step 1: Add content suggestions
+    for s in content_suggestions:
+        label = s["label"]
+        confidence = s["confidence"]
+        reason = s["reason"]
+
+        if label in customer_history:
+            count = customer_history[label]
+            boost = min(count * 2, 15)
+            confidence = min(confidence + boost, 100)
+            reason = f"{reason} (ook {count}x in historie)"
+
+        results[label] = {
+            "label": label,
+            "confidence": confidence,
+            "reason": reason,
+            "source": "content",
+        }
+
+    # Step 2: For route labels, let history override if strong
+    history_routes = {
+        name: count for name, count in customer_history.items()
+        if name in ROUTE_LABELS and count >= ROUTE_HISTORY_STRONG_THRESHOLD
+    }
+
+    if history_routes:
+        for route_name in ROUTE_LABELS:
+            if route_name in results:
+                del results[route_name]
+
+        best_route = max(history_routes, key=history_routes.get)
+        best_count = history_routes[best_route]
+        confidence = min(60 + best_count * 5, 98)
+
+        results[best_route] = {
+            "label": best_route,
+            "confidence": confidence,
+            "reason": f"Klant eerder {best_count}x op deze route",
+            "source": "history",
+        }
+
+    # Step 3: Add route from history even if content didn't suggest any route
+    if not any(name in results for name in ROUTE_LABELS):
+        for name in ROUTE_LABELS:
+            count = customer_history.get(name, 0)
+            if count >= ROUTE_HISTORY_STRONG_THRESHOLD:
+                confidence = min(60 + count * 5, 98)
+                results[name] = {
+                    "label": name,
+                    "confidence": confidence,
+                    "reason": f"Klant eerder {count}x op deze route",
+                    "source": "history",
+                }
+                break
+
+    # Step 4: Filter by confidence threshold
+    filtered = [
+        s for s in results.values()
+        if s["confidence"] >= threshold
+    ]
+
+    filtered.sort(key=lambda x: x["confidence"], reverse=True)
+    return filtered

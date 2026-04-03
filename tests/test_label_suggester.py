@@ -7,6 +7,7 @@ from label_suggester import (
     _count_labels_from_tickets,
     classify_ticket_content,
     _build_classification_prompt,
+    combine_suggestions,
 )
 
 
@@ -151,3 +152,87 @@ class TestClassifyTicketContent:
             result = classify_ticket_content("Test", "Test")
         assert len(result) == 1
         assert result[0]["label"] == "Support - Kassa"
+
+
+class TestCombineSuggestions:
+    def test_content_only_no_history(self):
+        content_suggestions = [
+            {"label": "Support - Kassa", "confidence": 90, "reason": "Kassa probleem"},
+            {"label": "Reparatie @BA", "confidence": 80, "reason": "Reparatie nodig"},
+        ]
+        result = combine_suggestions(
+            customer_history={},
+            content_suggestions=content_suggestions,
+            threshold=70,
+        )
+        assert len(result) == 2
+        assert result[0]["label"] == "Support - Kassa"
+
+    def test_route_from_history_overrides_content(self):
+        customer_history = {"Route Kust": 8, "Support - Kassa": 2}
+        content_suggestions = [
+            {"label": "Route Hulst", "confidence": 75, "reason": "Locatie in Hulst"},
+            {"label": "Support - Kassa", "confidence": 90, "reason": "Kassa probleem"},
+        ]
+        result = combine_suggestions(
+            customer_history=customer_history,
+            content_suggestions=content_suggestions,
+            threshold=70,
+        )
+        labels = [s["label"] for s in result]
+        assert "Route Kust" in labels
+        assert "Route Hulst" not in labels
+        assert "Support - Kassa" in labels
+
+    def test_route_history_weak_falls_back_to_content(self):
+        customer_history = {"Route Kust": 2}
+        content_suggestions = [
+            {"label": "Route Hulst", "confidence": 85, "reason": "Locatie in Hulst"},
+        ]
+        result = combine_suggestions(
+            customer_history=customer_history,
+            content_suggestions=content_suggestions,
+            threshold=70,
+        )
+        labels = [s["label"] for s in result]
+        assert "Route Hulst" in labels
+
+    def test_confidence_threshold_filters_low(self):
+        content_suggestions = [
+            {"label": "Support - Kassa", "confidence": 90, "reason": "Zeker"},
+            {"label": "RMA", "confidence": 50, "reason": "Misschien"},
+        ]
+        result = combine_suggestions(
+            customer_history={},
+            content_suggestions=content_suggestions,
+            threshold=70,
+        )
+        labels = [s["label"] for s in result]
+        assert "Support - Kassa" in labels
+        assert "RMA" not in labels
+
+    def test_history_boosts_matching_content(self):
+        customer_history = {"Support - Kassa": 5}
+        content_suggestions = [
+            {"label": "Support - Kassa", "confidence": 72, "reason": "Kassa"},
+        ]
+        result = combine_suggestions(
+            customer_history=customer_history,
+            content_suggestions=content_suggestions,
+            threshold=70,
+        )
+        assert len(result) == 1
+        assert result[0]["confidence"] > 72
+
+    def test_route_from_history_shows_count(self):
+        customer_history = {"Route Kust": 6}
+        content_suggestions = []
+        result = combine_suggestions(
+            customer_history=customer_history,
+            content_suggestions=content_suggestions,
+            threshold=70,
+        )
+        assert len(result) == 1
+        assert result[0]["label"] == "Route Kust"
+        assert "6x" in result[0]["reason"]
+        assert result[0]["source"] == "history"
