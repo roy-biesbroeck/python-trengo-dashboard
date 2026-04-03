@@ -2,10 +2,15 @@ import json
 import os
 from datetime import datetime, timezone, timedelta
 
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, request
 from trengo_client import TrengoClient, parse_datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 from autoclose import run_autoclose, get_last_result
+from label_suggester import (
+    scan_for_suggestions, get_suggestion_queue,
+    accept_suggestion, reject_suggestion, get_tagger_stats,
+    refresh_customer_cache,
+)
 
 app = Flask(__name__)
 
@@ -181,6 +186,19 @@ scheduler = BackgroundScheduler(daemon=True)
 scheduler.add_job(run_autoclose, "interval", minutes=30, id="ruijie_autoclose")
 scheduler.start()
 
+# ── Label Suggester scheduler ────────────────────────
+if os.getenv("TAGGER_ENABLED", "false").lower() in ("true", "1", "yes"):
+    _tagger_interval = int(os.getenv("TAGGER_SCAN_INTERVAL", "15"))
+    scheduler.add_job(
+        scan_for_suggestions, "interval",
+        minutes=_tagger_interval, id="label_suggester_scan",
+    )
+    _cache_refresh_hours = int(os.getenv("TAGGER_CACHE_REFRESH_HOURS", "6"))
+    scheduler.add_job(
+        refresh_customer_cache, "interval",
+        hours=_cache_refresh_hours, id="label_cache_refresh",
+    )
+
 
 @app.route("/api/autoclose")
 def autoclose_status():
@@ -196,6 +214,65 @@ def autoclose_trigger():
     """Manually trigger an autoclose run."""
     try:
         result = run_autoclose()
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Label Suggester routes ───────────────────────────
+
+@app.route("/tagger")
+def tagger():
+    return render_template("tagger.html")
+
+
+@app.route("/api/tagger/queue")
+def tagger_queue():
+    """Return the current suggestion queue + stats."""
+    try:
+        return jsonify({
+            "queue": get_suggestion_queue(),
+            "stats": get_tagger_stats(),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/tagger/accept", methods=["POST"])
+def tagger_accept():
+    """Accept a label suggestion."""
+    try:
+        data = request.get_json()
+        ticket_id = data.get("ticket_id")
+        label_name = data.get("label_name")
+        if not ticket_id or not label_name:
+            return jsonify({"error": "ticket_id en label_name zijn verplicht"}), 400
+        result = accept_suggestion(ticket_id=ticket_id, label_name=label_name)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/tagger/reject", methods=["POST"])
+def tagger_reject():
+    """Reject a label suggestion."""
+    try:
+        data = request.get_json()
+        ticket_id = data.get("ticket_id")
+        label_name = data.get("label_name")
+        if not ticket_id or not label_name:
+            return jsonify({"error": "ticket_id en label_name zijn verplicht"}), 400
+        result = reject_suggestion(ticket_id=ticket_id, label_name=label_name)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/tagger/scan", methods=["POST"])
+def tagger_scan():
+    """Manually trigger a suggestion scan."""
+    try:
+        result = scan_for_suggestions()
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
