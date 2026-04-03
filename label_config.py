@@ -218,3 +218,29 @@ def get_label_definitions_prompt() -> str:
     for name, info in SUGGESTABLE_LABELS.items():
         lines.append(f"- {name}: {info['description']}")
     return "\n".join(lines)
+
+
+# Internal team contacts — their tickets are created on behalf of customers.
+INTERNAL_CONTACTS = {
+    "Jos Biesbroeck",
+    "Carl van Dorsselaer",
+    "Staf Biesbroeck",
+    "Michael Grguric",
+    "Roy Ernst",
+    "Ludwig",
+    "Martine",
+    "support@biesbroeck.eu",
+    "info@unitouch.eu",
+    "HeyTom",
+    "Sales -Martens Afrekensystemen",
+    "Biesbroeck Automation",
+}
+
+_INTERNAL_CONTACTS_LOWER = {name.lower() for name in INTERNAL_CONTACTS}
+
+
+def is_internal_contact(name: str = "") -> bool:
+    """Check if a contact name belongs to an internal team member."""
+    if not name:
+        return False
+    return name.lower().strip() in _INTERNAL_CONTACTS_LOWER

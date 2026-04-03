@@ -8,6 +8,7 @@ from label_config import (
     get_label_name,
     get_label_definitions_prompt,
 )
+from label_config import INTERNAL_CONTACTS, is_internal_contact
 
 
 def test_labels_is_dict_with_entries():
@@ -52,3 +53,26 @@ def test_suggestable_labels_has_descriptions():
     for name, info in SUGGESTABLE_LABELS.items():
         assert "description" in info, f"{name} missing description"
         assert len(info["description"]) > 5, f"{name} has empty description"
+
+
+def test_internal_contacts_is_set():
+    assert isinstance(INTERNAL_CONTACTS, set)
+    assert "Jos Biesbroeck" in INTERNAL_CONTACTS
+    assert "support@biesbroeck.eu" in INTERNAL_CONTACTS
+    assert "HeyTom" in INTERNAL_CONTACTS
+
+
+def test_is_internal_contact_by_name():
+    assert is_internal_contact(name="Jos Biesbroeck") is True
+    assert is_internal_contact(name="Restaurant De Haven") is False
+
+
+def test_is_internal_contact_case_insensitive():
+    assert is_internal_contact(name="jos biesbroeck") is True
+    assert is_internal_contact(name="JOS BIESBROECK") is True
+
+
+def test_is_internal_contact_by_email():
+    assert is_internal_contact(name="support@biesbroeck.eu") is True
+    assert is_internal_contact(name="info@unitouch.eu") is True
+    assert is_internal_contact(name="klant@example.com") is False
