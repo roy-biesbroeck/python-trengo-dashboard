@@ -230,6 +230,16 @@ body {
     border: 1px solid #bbf7d0;
 }
 
+.internal-badge {
+    font-size: 12px;
+    color: #8b5cf6;
+    background: #f5f3ff;
+    padding: 2px 8px;
+    border-radius: 8px;
+    margin-left: 6px;
+    font-weight: 500;
+}
+
 @media (max-width: 600px) {
     .suggestion-row {
         flex-direction: column;

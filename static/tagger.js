@@ -36,7 +36,14 @@ function renderQueue(queue) {
             '<div class="ticket-header"><div>' +
             '<span class="ticket-id">#' + ticket.ticket_id + '</span>' +
             '<div class="ticket-subject">' + escapeHtml(ticket.ticket_subject) + '</div>' +
-            '<div class="ticket-customer">' + escapeHtml(ticket.customer_name) + '</div>' +
+            '<div class="ticket-customer">' + (function() {
+                var customerLine = escapeHtml(ticket.customer_name);
+                if (ticket.internal_creator) {
+                    customerLine = escapeHtml(ticket.customer_name) +
+                        ' <span class="internal-badge">via ' + escapeHtml(ticket.internal_creator) + '</span>';
+                }
+                return customerLine;
+            })() + '</div>' +
             '</div></div>' +
             (ticket.message_preview ? '<div class="ticket-preview">' + escapeHtml(ticket.message_preview) + '</div>' : '') +
             '<div class="suggestions">' +
