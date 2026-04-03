@@ -139,21 +139,22 @@ class TrengoClient:
                     timeout=15,
                 )
                 if response.status_code == 429:
-                    print(f"Rate limit bij labels ticket {ticket_id}, 2s wachten...")
                     time.sleep(2)
                     continue
-                response.raise_for_status()
+                if response.status_code >= 400:
+                    return []  # ticket deleted/inaccessible
+                # Handle empty response body
+                if not response.text or not response.text.strip():
+                    return []
                 data = response.json()
                 return data.get("data", []) if isinstance(data, dict) else data
             except requests.exceptions.RequestException as e:
                 if attempt < retries - 1:
                     time.sleep(1)
                     continue
-                print(f"Fout bij ophalen labels voor ticket {ticket_id}: {e}")
                 return []
-            except Exception as e:
-                print(f"Fout bij ophalen labels voor ticket {ticket_id}: {e}")
-                return []
+            except (ValueError, KeyError):
+                return []  # invalid JSON — ticket likely deleted
         return []
 
     def attach_label(self, ticket_id: int, label_id: int) -> bool:
