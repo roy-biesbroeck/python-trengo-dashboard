@@ -272,3 +272,103 @@ def combine_suggestions(
 
     filtered.sort(key=lambda x: x["confidence"], reverse=True)
     return filtered
+
+
+# ── Suggestion Queue ─────────────────────────────────
+
+QUEUE_FILE = os.path.join(DATA_DIR, "label_suggestions.json")
+FEEDBACK_FILE = os.path.join(DATA_DIR, "label_feedback.json")
+
+
+def _load_queue() -> List[Dict]:
+    if not os.path.exists(QUEUE_FILE):
+        return []
+    try:
+        with open(QUEUE_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def _save_queue(queue: List[Dict]):
+    with open(QUEUE_FILE, "w", encoding="utf-8") as f:
+        json.dump(queue, f, ensure_ascii=False, indent=2)
+
+
+def add_to_queue(suggestion: Dict):
+    """Add a ticket suggestion to the queue. Skips duplicates."""
+    queue = _load_queue()
+    existing_ids = {q["ticket_id"] for q in queue}
+    if suggestion["ticket_id"] in existing_ids:
+        return
+    suggestion["added_at"] = datetime.now(timezone.utc).isoformat()
+    queue.append(suggestion)
+    _save_queue(queue)
+
+
+def remove_from_queue(ticket_id: int, label_name: str):
+    """Remove a specific label suggestion from a ticket in the queue."""
+    queue = _load_queue()
+    new_queue = []
+    for entry in queue:
+        if entry["ticket_id"] == ticket_id:
+            entry["suggestions"] = [
+                s for s in entry["suggestions"]
+                if s["label"] != label_name
+            ]
+            if entry["suggestions"]:
+                new_queue.append(entry)
+        else:
+            new_queue.append(entry)
+    _save_queue(new_queue)
+
+
+def get_suggestion_queue() -> List[Dict]:
+    """Return the current suggestion queue for the UI."""
+    return _load_queue()
+
+
+# ── Feedback Log ─────────────────────────────────────
+
+def _load_feedback() -> List[Dict]:
+    if not os.path.exists(FEEDBACK_FILE):
+        return []
+    try:
+        with open(FEEDBACK_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def _save_feedback(feedback: List[Dict]):
+    with open(FEEDBACK_FILE, "w", encoding="utf-8") as f:
+        json.dump(feedback, f, ensure_ascii=False, indent=2)
+
+
+def log_feedback(ticket_id: int, label_name: str, action: str, confidence: int):
+    """Log an accept or reject decision."""
+    feedback = _load_feedback()
+    feedback.append({
+        "ticket_id": ticket_id,
+        "label": label_name,
+        "action": action,
+        "confidence": confidence,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    })
+    _save_feedback(feedback)
+    logger.info(f"Feedback: {action} '{label_name}' voor ticket #{ticket_id}")
+
+
+def get_tagger_stats() -> Dict:
+    """Return tagger statistics."""
+    feedback = _load_feedback()
+    accepted = sum(1 for f in feedback if f["action"] == "accept")
+    rejected = sum(1 for f in feedback if f["action"] == "reject")
+    total = accepted + rejected
+    rate = round(accepted / total * 100) if total > 0 else 0
+    return {
+        "total_accepted": accepted,
+        "total_rejected": rejected,
+        "total_decisions": total,
+        "acceptance_rate": rate,
+    }

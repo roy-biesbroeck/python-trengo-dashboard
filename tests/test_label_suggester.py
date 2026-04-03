@@ -8,7 +8,20 @@ from label_suggester import (
     classify_ticket_content,
     _build_classification_prompt,
     combine_suggestions,
+    add_to_queue, remove_from_queue, get_suggestion_queue,
+    log_feedback, get_tagger_stats,
+    QUEUE_FILE, FEEDBACK_FILE,
 )
+
+
+@pytest.fixture
+def clean_data_files(tmp_path):
+    """Use temp files for queue and feedback during tests."""
+    queue_file = str(tmp_path / "label_suggestions.json")
+    feedback_file = str(tmp_path / "label_feedback.json")
+    with patch("label_suggester.QUEUE_FILE", queue_file), \
+         patch("label_suggester.FEEDBACK_FILE", feedback_file):
+        yield queue_file, feedback_file
 
 
 def _ticket(id, subject, created_at, contact_id=100, labels=None):
@@ -236,3 +249,79 @@ class TestCombineSuggestions:
         assert result[0]["label"] == "Route Kust"
         assert "6x" in result[0]["reason"]
         assert result[0]["source"] == "history"
+
+
+class TestSuggestionQueue:
+    def test_add_and_get_queue(self, clean_data_files):
+        suggestion = {
+            "ticket_id": 100,
+            "ticket_subject": "Kassa kapot",
+            "customer_name": "Restaurant De Haven",
+            "contact_id": 200,
+            "message_preview": "Onze kassa start niet meer op...",
+            "suggestions": [
+                {"label": "Support - Kassa", "confidence": 92,
+                 "reason": "Kassa probleem", "source": "content"},
+            ],
+        }
+        add_to_queue(suggestion)
+        queue = get_suggestion_queue()
+        assert len(queue) == 1
+        assert queue[0]["ticket_id"] == 100
+
+    def test_no_duplicate_tickets_in_queue(self, clean_data_files):
+        suggestion = {
+            "ticket_id": 100, "ticket_subject": "Kassa kapot",
+            "customer_name": "Test", "contact_id": 200,
+            "message_preview": "Test",
+            "suggestions": [{"label": "RMA", "confidence": 80,
+                             "reason": "Test", "source": "content"}],
+        }
+        add_to_queue(suggestion)
+        add_to_queue(suggestion)
+        queue = get_suggestion_queue()
+        assert len(queue) == 1
+
+    def test_remove_from_queue(self, clean_data_files):
+        add_to_queue({
+            "ticket_id": 100, "ticket_subject": "A", "customer_name": "X",
+            "contact_id": 1, "message_preview": "...",
+            "suggestions": [{"label": "RMA", "confidence": 80,
+                             "reason": "R", "source": "content"}],
+        })
+        add_to_queue({
+            "ticket_id": 200, "ticket_subject": "B", "customer_name": "Y",
+            "contact_id": 2, "message_preview": "...",
+            "suggestions": [{"label": "Urgent", "confidence": 90,
+                             "reason": "R", "source": "content"}],
+        })
+        remove_from_queue(ticket_id=100, label_name="RMA")
+        queue = get_suggestion_queue()
+        t100 = [q for q in queue if q["ticket_id"] == 100]
+        if t100:
+            labels = [s["label"] for s in t100[0]["suggestions"]]
+            assert "RMA" not in labels
+
+
+class TestFeedbackLog:
+    def test_log_accept(self, clean_data_files):
+        log_feedback(ticket_id=100, label_name="Support - Kassa",
+                     action="accept", confidence=92)
+        stats = get_tagger_stats()
+        assert stats["total_accepted"] == 1
+        assert stats["total_rejected"] == 0
+
+    def test_log_reject(self, clean_data_files):
+        log_feedback(ticket_id=100, label_name="RMA",
+                     action="reject", confidence=75)
+        stats = get_tagger_stats()
+        assert stats["total_accepted"] == 0
+        assert stats["total_rejected"] == 1
+
+    def test_acceptance_rate(self, clean_data_files):
+        for i in range(8):
+            log_feedback(ticket_id=i, label_name="A", action="accept", confidence=90)
+        for i in range(2):
+            log_feedback(ticket_id=100+i, label_name="B", action="reject", confidence=70)
+        stats = get_tagger_stats()
+        assert stats["acceptance_rate"] == 80
