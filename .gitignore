@@ -136,6 +136,10 @@ celerybeat.pid
 
 # Runtime data
 data/
+data/label_suggestions.json
+data/label_feedback.json
+data/customer_label_history.json
+data/label_suggester.log
 
 # Environments
 .env
