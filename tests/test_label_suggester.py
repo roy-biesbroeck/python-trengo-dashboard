@@ -10,6 +10,7 @@ from label_suggester import (
     combine_suggestions,
     add_to_queue, remove_from_queue, get_suggestion_queue,
     log_feedback, get_tagger_stats,
+    scan_for_suggestions,
     QUEUE_FILE, FEEDBACK_FILE,
 )
 
@@ -325,3 +326,91 @@ class TestFeedbackLog:
             log_feedback(ticket_id=100+i, label_name="B", action="reject", confidence=70)
         stats = get_tagger_stats()
         assert stats["acceptance_rate"] == 80
+
+
+class TestScanForSuggestions:
+    def test_scans_untagged_tickets_and_adds_to_queue(self, clean_data_files):
+        mock_client = MagicMock()
+        mock_client.get_tickets.side_effect = lambda s: [
+            {
+                "id": 501, "subject": "Kassa kapot", "status": "OPEN",
+                "created_at": "2026-04-03T10:00:00+00:00",
+                "contact": {"id": 200, "name": "Restaurant De Haven"},
+                "labels": [],
+            },
+        ] if s == "OPEN" else [
+            {
+                "id": 502, "subject": "Factuur", "status": "ASSIGNED",
+                "created_at": "2026-04-03T09:00:00+00:00",
+                "contact": {"id": 300, "name": "Bakkerij Janssen"},
+                "labels": [{"name": "Boedhoudkoppeling"}],
+            },
+        ]
+        mock_client.get_ticket_messages.return_value = [
+            {"body": "Onze kassa start niet meer op na de update", "type": "INBOUND"},
+        ]
+        mock_client.get_closed_tickets.return_value = []
+
+        mock_gpt_result = [
+            {"label": "Support - Kassa", "confidence": 90, "reason": "Kassa probleem"},
+        ]
+        with patch("label_suggester.classify_ticket_content", return_value=mock_gpt_result), \
+             patch("label_suggester._load_history_cache", return_value={}), \
+             patch("label_suggester._save_history_cache"):
+            result = scan_for_suggestions(client=mock_client, threshold=70)
+
+        assert result["scanned"] == 1
+        assert result["suggested"] == 1
+        assert result["skipped_has_labels"] == 1
+
+        queue = get_suggestion_queue()
+        assert len(queue) == 1
+        assert queue[0]["ticket_id"] == 501
+
+    def test_skips_tickets_already_in_queue(self, clean_data_files):
+        add_to_queue({
+            "ticket_id": 501, "ticket_subject": "Old", "customer_name": "X",
+            "contact_id": 1, "message_preview": "...",
+            "suggestions": [{"label": "RMA", "confidence": 80,
+                             "reason": "R", "source": "content"}],
+        })
+
+        mock_client = MagicMock()
+        mock_client.get_tickets.side_effect = lambda s: [
+            {
+                "id": 501, "subject": "Kassa kapot", "status": "OPEN",
+                "created_at": "2026-04-03T10:00:00+00:00",
+                "contact": {"id": 200, "name": "Test"},
+                "labels": [],
+            },
+        ] if s == "OPEN" else []
+
+        result = scan_for_suggestions(client=mock_client, threshold=70)
+        assert result["skipped_in_queue"] == 1
+
+    def test_no_suggestions_when_below_threshold(self, clean_data_files):
+        mock_client = MagicMock()
+        mock_client.get_tickets.side_effect = lambda s: [
+            {
+                "id": 601, "subject": "Vaag bericht", "status": "OPEN",
+                "created_at": "2026-04-03T10:00:00+00:00",
+                "contact": {"id": 400, "name": "Test"},
+                "labels": [],
+            },
+        ] if s == "OPEN" else []
+        mock_client.get_ticket_messages.return_value = [
+            {"body": "Hallo", "type": "INBOUND"},
+        ]
+        mock_client.get_closed_tickets.return_value = []
+
+        mock_gpt_result = [
+            {"label": "Urgent", "confidence": 30, "reason": "Misschien"},
+        ]
+        with patch("label_suggester.classify_ticket_content", return_value=mock_gpt_result), \
+             patch("label_suggester._load_history_cache", return_value={}), \
+             patch("label_suggester._save_history_cache"):
+            result = scan_for_suggestions(client=mock_client, threshold=70)
+
+        assert result["suggested"] == 0
+        queue = get_suggestion_queue()
+        assert len(queue) == 0

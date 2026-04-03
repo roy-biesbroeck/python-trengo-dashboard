@@ -372,3 +372,106 @@ def get_tagger_stats() -> Dict:
         "total_decisions": total,
         "acceptance_rate": rate,
     }
+
+
+# ── Scan Orchestrator ────────────────────────────────
+
+def scan_for_suggestions(
+    client: TrengoClient = None,
+    threshold: int = None,
+) -> Dict:
+    """Scan recent tickets and generate label suggestions."""
+    if threshold is None:
+        threshold = int(os.getenv("TAGGER_CONFIDENCE_THRESHOLD", "70"))
+    if client is None:
+        client = TrengoClient()
+
+    result = {
+        "scanned": 0,
+        "suggested": 0,
+        "skipped_has_labels": 0,
+        "skipped_in_queue": 0,
+        "errors": 0,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    }
+
+    try:
+        open_tickets = client.get_tickets("OPEN")
+        assigned_tickets = client.get_tickets("ASSIGNED")
+        all_tickets = open_tickets + assigned_tickets
+
+        queue = _load_queue()
+        queued_ids = {q["ticket_id"] for q in queue}
+
+        for ticket in all_tickets:
+            if not isinstance(ticket, dict):
+                continue
+
+            ticket_id = ticket.get("id")
+            if not ticket_id:
+                continue
+
+            if ticket_id in queued_ids:
+                result["skipped_in_queue"] += 1
+                continue
+
+            existing_labels = ticket.get("labels", [])
+            if existing_labels:
+                result["skipped_has_labels"] += 1
+                continue
+
+            result["scanned"] += 1
+
+            try:
+                contact = ticket.get("contact", {}) or {}
+                contact_id = _get_contact_id(ticket)
+                customer_name = contact.get("name", "Onbekend")
+                subject = ticket.get("subject", "")
+
+                messages = client.get_ticket_messages(ticket_id)
+                inbound = [m for m in messages if m.get("type") == "INBOUND"]
+                first_message = inbound[0].get("body", "") if inbound else ""
+                message_text = first_message[:1000] if first_message else ""
+
+                customer_history = {}
+                if contact_id:
+                    customer_history = get_customer_label_history(client, contact_id)
+
+                content_suggestions = classify_ticket_content(subject, message_text)
+
+                suggestions = combine_suggestions(
+                    customer_history=customer_history,
+                    content_suggestions=content_suggestions,
+                    threshold=threshold,
+                )
+
+                if suggestions:
+                    add_to_queue({
+                        "ticket_id": ticket_id,
+                        "ticket_subject": subject,
+                        "customer_name": customer_name,
+                        "contact_id": contact_id,
+                        "message_preview": message_text[:200],
+                        "suggestions": suggestions,
+                    })
+                    result["suggested"] += 1
+                    logger.info(
+                        f"Suggesties voor ticket #{ticket_id}: "
+                        f"{[s['label'] for s in suggestions]}"
+                    )
+
+            except Exception as e:
+                result["errors"] += 1
+                logger.error(f"Fout bij verwerken ticket #{ticket_id}: {e}")
+
+    except Exception as e:
+        result["error"] = str(e)
+        logger.error(f"Scan fout: {e}")
+
+    logger.info(
+        f"Scan klaar: {result['scanned']} verwerkt, "
+        f"{result['suggested']} suggesties, "
+        f"{result['skipped_has_labels']} al gelabeld, "
+        f"{result['skipped_in_queue']} al in wachtrij"
+    )
+    return result
