@@ -475,3 +475,126 @@ def scan_for_suggestions(
         f"{result['skipped_in_queue']} al in wachtrij"
     )
     return result
+
+
+# ── Accept / Reject Actions ──────────────────────────
+
+def accept_suggestion(
+    client: TrengoClient = None,
+    ticket_id: int = 0,
+    label_name: str = "",
+) -> Dict:
+    """Accept a suggestion: attach label via Trengo API and log feedback."""
+    from label_config import get_label_id
+
+    if client is None:
+        client = TrengoClient()
+
+    label_id = get_label_id(label_name)
+    if label_id is None:
+        return {"success": False, "error": f"Onbekend label: {label_name}"}
+
+    queue = _load_queue()
+    confidence = 0
+    for entry in queue:
+        if entry["ticket_id"] == ticket_id:
+            for s in entry["suggestions"]:
+                if s["label"] == label_name:
+                    confidence = s["confidence"]
+                    break
+
+    success = client.attach_label(ticket_id, label_id)
+    if not success:
+        return {"success": False, "error": "Trengo API fout bij koppelen label"}
+
+    log_feedback(ticket_id, label_name, "accept", confidence)
+    remove_from_queue(ticket_id, label_name)
+
+    logger.info(f"Label '{label_name}' toegepast op ticket #{ticket_id}")
+    return {"success": True}
+
+
+def reject_suggestion(ticket_id: int, label_name: str) -> Dict:
+    """Reject a suggestion: log feedback and remove from queue."""
+    queue = _load_queue()
+    confidence = 0
+    for entry in queue:
+        if entry["ticket_id"] == ticket_id:
+            for s in entry["suggestions"]:
+                if s["label"] == label_name:
+                    confidence = s["confidence"]
+                    break
+
+    log_feedback(ticket_id, label_name, "reject", confidence)
+    remove_from_queue(ticket_id, label_name)
+
+    logger.info(f"Label '{label_name}' afgewezen voor ticket #{ticket_id}")
+    return {"success": True}
+
+
+# ── Cache Refresh ────────────────────────────────────
+
+def refresh_customer_cache(client: TrengoClient = None) -> Dict:
+    """Re-scan closed tickets and update the customer label history cache."""
+    if client is None:
+        client = TrengoClient()
+
+    try:
+        closed_tickets = client.get_closed_tickets()
+    except Exception as e:
+        logger.error(f"Cache refresh fout: {e}")
+        return {"error": str(e), "customers_updated": 0}
+
+    for ticket in closed_tickets:
+        if not ticket.get("labels"):
+            ticket["labels"] = client.get_ticket_labels(ticket["id"])
+
+    groups: Dict[int, List[Dict]] = {}
+    for ticket in closed_tickets:
+        contact_id = _get_contact_id(ticket)
+        if not contact_id:
+            continue
+        if contact_id not in groups:
+            groups[contact_id] = []
+        groups[contact_id].append(ticket)
+
+    cache = _load_history_cache()
+    updated = 0
+    for contact_id, tickets in groups.items():
+        label_counts = _count_labels_from_tickets(tickets)
+        if label_counts:
+            cache[str(contact_id)] = {
+                "label_counts": label_counts,
+                "ticket_count": len(tickets),
+                "cached_at": datetime.now(timezone.utc).isoformat(),
+            }
+            updated += 1
+
+    _save_history_cache(cache)
+
+    logger.info(f"Cache vernieuwd: {updated} klanten bijgewerkt uit {len(closed_tickets)} tickets")
+    return {"customers_updated": updated, "tickets_scanned": len(closed_tickets)}
+
+
+# ── Auto-Apply Logic ─────────────────────────────────
+
+MIN_DECISIONS_FOR_AUTO = 10
+
+
+def _should_auto_apply(label_name: str, confidence: int) -> bool:
+    """Check if a label should be auto-applied based on historical acceptance rate."""
+    if os.getenv("TAGGER_AUTO_APPLY", "false").lower() not in ("true", "1", "yes"):
+        return False
+
+    threshold = int(os.getenv("TAGGER_AUTO_APPLY_THRESHOLD", "95"))
+
+    feedback = _load_feedback()
+    label_feedback = [f for f in feedback if f["label"] == label_name]
+
+    if len(label_feedback) < MIN_DECISIONS_FOR_AUTO:
+        return False
+
+    accepted = sum(1 for f in label_feedback if f["action"] == "accept")
+    rate = round(accepted / len(label_feedback) * 100)
+
+    return rate >= threshold

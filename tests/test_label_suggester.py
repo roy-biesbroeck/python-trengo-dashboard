@@ -11,6 +11,8 @@ from label_suggester import (
     add_to_queue, remove_from_queue, get_suggestion_queue,
     log_feedback, get_tagger_stats,
     scan_for_suggestions,
+    refresh_customer_cache, _should_auto_apply,
+    accept_suggestion, reject_suggestion,
     QUEUE_FILE, FEEDBACK_FILE,
 )
 
@@ -412,5 +414,152 @@ class TestScanForSuggestions:
             result = scan_for_suggestions(client=mock_client, threshold=70)
 
         assert result["suggested"] == 0
+        queue = get_suggestion_queue()
+        assert len(queue) == 0
+
+
+class TestRefreshCustomerCache:
+    def test_updates_cache_from_closed_tickets(self, clean_data_files):
+        mock_client = MagicMock()
+        mock_client.get_closed_tickets.return_value = [
+            {
+                "id": 1, "contact_id": 100,
+                "contact": {"id": 100, "name": "Test"},
+                "labels": [{"name": "Route Kust"}, {"name": "Support - Kassa"}],
+                "closed_at": "2026-04-01T10:00:00+00:00",
+            },
+            {
+                "id": 2, "contact_id": 100,
+                "contact": {"id": 100, "name": "Test"},
+                "labels": [{"name": "Route Kust"}],
+                "closed_at": "2026-04-02T10:00:00+00:00",
+            },
+            {
+                "id": 3, "contact_id": 200,
+                "contact": {"id": 200, "name": "Ander"},
+                "labels": [{"name": "Boekhoudkoppeling"}],
+                "closed_at": "2026-04-03T10:00:00+00:00",
+            },
+        ]
+
+        # Also patch the history cache file to use tmp
+        cache_file = str(clean_data_files[0]).replace("label_suggestions", "customer_label_history")
+        with patch("label_suggester.HISTORY_CACHE_FILE", cache_file):
+            result = refresh_customer_cache(client=mock_client)
+
+        assert result["customers_updated"] >= 2
+
+
+class TestShouldAutoApply:
+    def test_auto_apply_when_enabled_and_high_rate(self, clean_data_files):
+        for i in range(19):
+            log_feedback(i, "Support - Kassa", "accept", 90)
+        log_feedback(99, "Support - Kassa", "reject", 90)
+
+        with patch.dict("os.environ", {
+            "TAGGER_AUTO_APPLY": "true",
+            "TAGGER_AUTO_APPLY_THRESHOLD": "95",
+        }):
+            assert _should_auto_apply("Support - Kassa", 92) is True
+
+    def test_no_auto_apply_when_disabled(self, clean_data_files):
+        for i in range(20):
+            log_feedback(i, "RMA", "accept", 90)
+
+        with patch.dict("os.environ", {"TAGGER_AUTO_APPLY": "false"}):
+            assert _should_auto_apply("RMA", 92) is False
+
+    def test_no_auto_apply_when_rate_too_low(self, clean_data_files):
+        for i in range(5):
+            log_feedback(i, "Urgent", "accept", 90)
+        for i in range(5):
+            log_feedback(10 + i, "Urgent", "reject", 90)
+
+        with patch.dict("os.environ", {
+            "TAGGER_AUTO_APPLY": "true",
+            "TAGGER_AUTO_APPLY_THRESHOLD": "95",
+        }):
+            assert _should_auto_apply("Urgent", 90) is False
+
+    def test_no_auto_apply_with_insufficient_data(self, clean_data_files):
+        for i in range(3):
+            log_feedback(i, "Kassarollen", "accept", 90)
+
+        with patch.dict("os.environ", {
+            "TAGGER_AUTO_APPLY": "true",
+            "TAGGER_AUTO_APPLY_THRESHOLD": "95",
+        }):
+            assert _should_auto_apply("Kassarollen", 90) is False
+
+
+class TestAcceptReject:
+    def test_accept_calls_trengo_and_logs(self, clean_data_files):
+        add_to_queue({
+            "ticket_id": 100, "ticket_subject": "Test", "customer_name": "X",
+            "contact_id": 200, "message_preview": "...",
+            "suggestions": [
+                {"label": "Support - Kassa", "confidence": 90,
+                 "reason": "Kassa", "source": "content"},
+                {"label": "Route Kust", "confidence": 85,
+                 "reason": "Route", "source": "history"},
+            ],
+        })
+
+        mock_client = MagicMock()
+        mock_client.attach_label.return_value = True
+
+        result = accept_suggestion(
+            client=mock_client,
+            ticket_id=100,
+            label_name="Support - Kassa",
+        )
+
+        assert result["success"] is True
+        mock_client.attach_label.assert_called_once_with(100, 1807989)
+
+        stats = get_tagger_stats()
+        assert stats["total_accepted"] == 1
+
+        queue = get_suggestion_queue()
+        t100 = [q for q in queue if q["ticket_id"] == 100]
+        assert len(t100) == 1
+        labels = [s["label"] for s in t100[0]["suggestions"]]
+        assert "Support - Kassa" not in labels
+        assert "Route Kust" in labels
+
+    def test_accept_fails_when_trengo_fails(self, clean_data_files):
+        add_to_queue({
+            "ticket_id": 100, "ticket_subject": "Test", "customer_name": "X",
+            "contact_id": 200, "message_preview": "...",
+            "suggestions": [
+                {"label": "RMA", "confidence": 80, "reason": "R", "source": "content"},
+            ],
+        })
+
+        mock_client = MagicMock()
+        mock_client.attach_label.return_value = False
+
+        result = accept_suggestion(
+            client=mock_client, ticket_id=100, label_name="RMA",
+        )
+
+        assert result["success"] is False
+        queue = get_suggestion_queue()
+        assert len(queue) == 1
+
+    def test_reject_logs_and_removes(self, clean_data_files):
+        add_to_queue({
+            "ticket_id": 100, "ticket_subject": "Test", "customer_name": "X",
+            "contact_id": 200, "message_preview": "...",
+            "suggestions": [
+                {"label": "RMA", "confidence": 80, "reason": "R", "source": "content"},
+            ],
+        })
+
+        reject_suggestion(ticket_id=100, label_name="RMA")
+
+        stats = get_tagger_stats()
+        assert stats["total_rejected"] == 1
+
         queue = get_suggestion_queue()
         assert len(queue) == 0
