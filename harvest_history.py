@@ -10,6 +10,7 @@ Usage:
 import json
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Dict, List
 
@@ -74,12 +75,22 @@ def harvest_customer_history(
         t for t in closed_tickets if not t.get("labels")
     ]
     if tickets_without_labels:
-        print(f"  Labels ophalen voor {len(tickets_without_labels)} tickets...")
-        for i, ticket in enumerate(tickets_without_labels):
-            ticket["labels"] = client.get_ticket_labels(ticket["id"])
-            if (i + 1) % 50 == 0:
-                print(f"    {i + 1}/{len(tickets_without_labels)} verwerkt...")
-            time.sleep(0.3)  # throttle to avoid rate limits
+        total = len(tickets_without_labels)
+        print(f"  Labels ophalen voor {total} tickets (5 parallel)...")
+        done = 0
+
+        def fetch_labels(ticket):
+            return ticket["id"], client.get_ticket_labels(ticket["id"])
+
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            futures = {pool.submit(fetch_labels, t): t for t in tickets_without_labels}
+            for future in as_completed(futures):
+                ticket = futures[future]
+                ticket_id, labels = future.result()
+                ticket["labels"] = labels
+                done += 1
+                if done % 100 == 0:
+                    print(f"    {done}/{total} verwerkt...")
 
     groups = _group_tickets_by_contact(closed_tickets)
     print(f"  {len(groups)} unieke klanten gevonden")
