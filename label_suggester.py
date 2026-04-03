@@ -13,6 +13,7 @@ from typing import Dict, List, Optional
 
 from trengo_client import TrengoClient
 from label_config import MANUAL_ONLY_LABELS, ROUTE_LABELS, SUGGESTABLE_LABELS, get_label_definitions_prompt, is_internal_contact
+from customer_matcher import CustomerMatcher
 
 logger = logging.getLogger("label_suggester")
 logger.setLevel(logging.INFO)
@@ -474,18 +475,29 @@ def scan_for_suggestions(
                 first_message = inbound[0].get("body", "") if inbound else ""
                 message_text = first_message[:1000] if first_message else ""
 
-                customer_history = {}
-                if contact_id:
-                    customer_history = get_customer_label_history(client, contact_id)
-
                 # Detect internal ticket
                 creator_name = contact.get("name", "")
                 internal_creator = creator_name if is_internal_contact(name=creator_name) else None
 
-                # Layer 2: Content classification
+                # Layer 2: Content classification (first, to get extracted_customer)
                 classification = classify_ticket_content(subject, message_text, internal_creator=internal_creator)
                 content_suggestions = classification["suggestions"]
                 extracted_customer = classification.get("extracted_customer")
+
+                # Layer 1: Customer history
+                customer_history = {}
+                if internal_creator and extracted_customer:
+                    cache = _load_history_cache()
+                    matcher = CustomerMatcher(cache)
+                    match = matcher.find(extracted_customer)
+                    if match:
+                        customer_history = match["label_counts"]
+                        logger.info(
+                            f"Interne ticket #{ticket_id}: klant '{extracted_customer}' "
+                            f"gematcht met '{match['customer_name']}' ({match['similarity']:.0%})"
+                        )
+                elif contact_id:
+                    customer_history = get_customer_label_history(client, contact_id)
 
                 suggestions = combine_suggestions(
                     customer_history=customer_history,
@@ -494,14 +506,18 @@ def scan_for_suggestions(
                 )
 
                 if suggestions:
-                    add_to_queue({
+                    queue_entry = {
                         "ticket_id": ticket_id,
                         "ticket_subject": subject,
-                        "customer_name": customer_name,
+                        "customer_name": extracted_customer or customer_name,
                         "contact_id": contact_id,
                         "message_preview": message_text[:200],
                         "suggestions": suggestions,
-                    })
+                    }
+                    if internal_creator:
+                        queue_entry["internal_creator"] = internal_creator
+                        queue_entry["extracted_customer"] = extracted_customer
+                    add_to_queue(queue_entry)
                     result["suggested"] += 1
                     logger.info(
                         f"Suggesties voor ticket #{ticket_id}: "

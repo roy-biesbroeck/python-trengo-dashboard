@@ -637,3 +637,79 @@ class TestClassifyInternalTicket:
 
         assert result["extracted_customer"] is None
         assert len(result["suggestions"]) == 1
+
+
+class TestScanInternalTicket:
+    def test_internal_ticket_uses_extracted_customer_history(self, clean_data_files):
+        mock_client = MagicMock()
+        mock_client.get_tickets.side_effect = lambda s: [
+            {
+                "id": 701, "subject": "Kassa kapot", "status": "OPEN",
+                "created_at": "2026-04-03T10:00:00+00:00",
+                "contact": {"id": 999, "name": "Jos Biesbroeck"},
+                "labels": [],
+            },
+        ] if s == "OPEN" else []
+        mock_client.get_ticket_messages.return_value = [
+            {"body": "La Porte Dór\n\nKassa start niet op", "type": "INBOUND"},
+        ]
+
+        mock_gpt_result = {
+            "extracted_customer": "La Porte Dór",
+            "suggestions": [
+                {"label": "Support - Kassa", "confidence": 90, "reason": "Kassa probleem"},
+            ],
+        }
+
+        mock_cache = {
+            "100": {
+                "customer_name": "La Porte Dór",
+                "label_counts": {"Route Kust": 8},
+                "ticket_count": 10,
+            },
+        }
+
+        with patch("label_suggester.classify_ticket_content", return_value=mock_gpt_result), \
+             patch("label_suggester._load_history_cache", return_value=mock_cache), \
+             patch("label_suggester._save_history_cache"):
+            result = scan_for_suggestions(client=mock_client, threshold=70)
+
+        assert result["suggested"] == 1
+        queue = get_suggestion_queue()
+        assert len(queue) == 1
+
+        suggestions = queue[0]["suggestions"]
+        labels = [s["label"] for s in suggestions]
+        assert "Route Kust" in labels
+        assert "Support - Kassa" in labels
+
+    def test_internal_ticket_unknown_customer(self, clean_data_files):
+        mock_client = MagicMock()
+        mock_client.get_tickets.side_effect = lambda s: [
+            {
+                "id": 702, "subject": "Overname", "status": "OPEN",
+                "created_at": "2026-04-03T10:00:00+00:00",
+                "contact": {"id": 999, "name": "Jos Biesbroeck"},
+                "labels": [],
+            },
+        ] if s == "OPEN" else []
+        mock_client.get_ticket_messages.return_value = [
+            {"body": "Nieuw Restaurant\n\nOvername per 1 juni", "type": "INBOUND"},
+        ]
+
+        mock_gpt_result = {
+            "extracted_customer": "Nieuw Restaurant",
+            "suggestions": [
+                {"label": "Bestelling", "confidence": 75, "reason": "Overname"},
+            ],
+        }
+
+        with patch("label_suggester.classify_ticket_content", return_value=mock_gpt_result), \
+             patch("label_suggester._load_history_cache", return_value={}), \
+             patch("label_suggester._save_history_cache"):
+            result = scan_for_suggestions(client=mock_client, threshold=70)
+
+        assert result["suggested"] == 1
+        queue = get_suggestion_queue()
+        suggestions = queue[0]["suggestions"]
+        assert any(s["label"] == "Bestelling" for s in suggestions)
