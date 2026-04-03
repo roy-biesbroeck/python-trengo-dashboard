@@ -1,0 +1,248 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f1f5f9;
+    color: #1e293b;
+    line-height: 1.5;
+}
+
+.container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 24px;
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.header h1 {
+    font-size: 24px;
+    font-weight: 700;
+    color: #1e293b;
+}
+
+.back-link {
+    font-size: 14px;
+    color: #64748b;
+    text-decoration: none;
+}
+.back-link:hover { color: #3b82f6; }
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.stats {
+    font-size: 14px;
+    color: #64748b;
+}
+.stat-divider {
+    margin: 0 4px;
+    color: #cbd5e1;
+}
+
+.btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, opacity 0.15s;
+}
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-scan {
+    background: #3b82f6;
+    color: white;
+}
+.btn-scan:hover:not(:disabled) { background: #2563eb; }
+
+.btn-accept {
+    background: #16a34a;
+    color: white;
+}
+.btn-accept:hover:not(:disabled) { background: #15803d; }
+
+.btn-reject {
+    background: #f1f5f9;
+    color: #64748b;
+    border: 1px solid #e2e8f0;
+}
+.btn-reject:hover:not(:disabled) {
+    background: #fee2e2;
+    color: #dc2626;
+    border-color: #fca5a5;
+}
+
+.queue {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.ticket-card {
+    background: white;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    padding: 20px;
+    transition: box-shadow 0.15s;
+}
+.ticket-card:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.ticket-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 8px;
+}
+
+.ticket-id {
+    font-size: 13px;
+    color: #94a3b8;
+    font-weight: 500;
+}
+
+.ticket-subject {
+    font-size: 16px;
+    font-weight: 600;
+    color: #1e293b;
+}
+
+.ticket-customer {
+    font-size: 14px;
+    color: #64748b;
+    margin-bottom: 12px;
+}
+
+.ticket-preview {
+    font-size: 13px;
+    color: #94a3b8;
+    margin-bottom: 16px;
+    line-height: 1.4;
+    max-height: 3em;
+    overflow: hidden;
+}
+
+.suggestions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.suggestion-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: #f8fafc;
+    border-radius: 8px;
+    border: 1px solid #f1f5f9;
+}
+
+.suggestion-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+}
+
+.suggestion-label {
+    font-weight: 600;
+    font-size: 14px;
+    color: #1e293b;
+}
+
+.suggestion-confidence {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: #dbeafe;
+    color: #2563eb;
+}
+.suggestion-confidence.high {
+    background: #dcfce7;
+    color: #16a34a;
+}
+.suggestion-confidence.medium {
+    background: #fef3c7;
+    color: #d97706;
+}
+
+.suggestion-reason {
+    font-size: 13px;
+    color: #94a3b8;
+}
+
+.suggestion-source {
+    font-size: 11px;
+    color: #cbd5e1;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.suggestion-actions {
+    display: flex;
+    gap: 8px;
+    margin-left: 12px;
+}
+
+.loading {
+    text-align: center;
+    padding: 48px;
+    color: #94a3b8;
+    font-size: 16px;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 64px 24px;
+    color: #94a3b8;
+}
+.empty-state p { font-size: 16px; }
+.empty-hint {
+    font-size: 14px;
+    margin-top: 8px;
+}
+
+.scan-result {
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    font-size: 14px;
+    background: #f0fdf4;
+    color: #16a34a;
+    border: 1px solid #bbf7d0;
+}
+
+@media (max-width: 600px) {
+    .suggestion-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+    .suggestion-actions {
+        margin-left: 0;
+        width: 100%;
+    }
+    .suggestion-actions .btn { flex: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+}

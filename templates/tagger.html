@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Label Suggester — Trengo</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='tagger.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="header-left">
+                <h1>Label Suggester</h1>
+                <a href="/" class="back-link">← Dashboard</a>
+            </div>
+            <div class="header-right">
+                <div class="stats" id="stats">
+                    <span class="stat" id="stat-total">— suggesties</span>
+                    <span class="stat-divider">|</span>
+                    <span class="stat" id="stat-rate">—% geaccepteerd</span>
+                </div>
+                <button class="btn btn-scan" id="btn-scan" onclick="triggerScan()">
+                    Scan Nu
+                </button>
+            </div>
+        </header>
+
+        <main class="queue" id="queue">
+            <div class="loading" id="loading">Laden...</div>
+        </main>
+
+        <div class="empty-state" id="empty-state" style="display: none;">
+            <p>Geen suggesties in de wachtrij.</p>
+            <p class="empty-hint">Klik op "Scan Nu" om nieuwe tickets te scannen.</p>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='tagger.js') }}"></script>
+</body>
+</html>
