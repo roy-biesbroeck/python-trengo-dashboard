@@ -130,18 +130,31 @@ class TrengoClient:
 
     def get_ticket_labels(self, ticket_id: int) -> List[Dict]:
         """Haal alle labels op die aan een ticket hangen."""
-        try:
-            response = requests.get(
-                f"{self.base_url}/tickets/{ticket_id}/labels",
-                headers=self.headers,
-                timeout=15,
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data.get("data", []) if isinstance(data, dict) else data
-        except Exception as e:
-            print(f"Fout bij ophalen labels voor ticket {ticket_id}: {e}")
-            return []
+        retries = 3
+        for attempt in range(retries):
+            try:
+                response = requests.get(
+                    f"{self.base_url}/tickets/{ticket_id}/labels",
+                    headers=self.headers,
+                    timeout=15,
+                )
+                if response.status_code == 429:
+                    print(f"Rate limit bij labels ticket {ticket_id}, 2s wachten...")
+                    time.sleep(2)
+                    continue
+                response.raise_for_status()
+                data = response.json()
+                return data.get("data", []) if isinstance(data, dict) else data
+            except requests.exceptions.RequestException as e:
+                if attempt < retries - 1:
+                    time.sleep(1)
+                    continue
+                print(f"Fout bij ophalen labels voor ticket {ticket_id}: {e}")
+                return []
+            except Exception as e:
+                print(f"Fout bij ophalen labels voor ticket {ticket_id}: {e}")
+                return []
+        return []
 
     def attach_label(self, ticket_id: int, label_id: int) -> bool:
         """Koppel een label aan een ticket. Retourneert True bij succes."""

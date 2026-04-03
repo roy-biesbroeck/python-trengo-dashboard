@@ -9,6 +9,7 @@ Usage:
 
 import json
 import os
+import time
 from datetime import datetime, timezone
 from typing import Dict, List
 
@@ -78,6 +79,7 @@ def harvest_customer_history(
             ticket["labels"] = client.get_ticket_labels(ticket["id"])
             if (i + 1) % 50 == 0:
                 print(f"    {i + 1}/{len(tickets_without_labels)} verwerkt...")
+            time.sleep(0.3)  # throttle to avoid rate limits
 
     groups = _group_tickets_by_contact(closed_tickets)
     print(f"  {len(groups)} unieke klanten gevonden")
