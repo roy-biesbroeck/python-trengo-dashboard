@@ -9,7 +9,7 @@ from autoclose import run_autoclose, get_last_result
 from label_suggester import (
     scan_for_suggestions, get_suggestion_queue,
     accept_suggestion, reject_suggestion, get_tagger_stats,
-    refresh_customer_cache,
+    refresh_customer_cache, get_customer_overview,
 )
 
 app = Flask(__name__)
@@ -274,6 +274,20 @@ def tagger_scan():
     try:
         result = scan_for_suggestions()
         return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/customers")
+def customers():
+    return render_template("customers.html")
+
+
+@app.route("/api/tagger/customers")
+def tagger_customers():
+    """Return customer label overview data."""
+    try:
+        return jsonify({"customers": get_customer_overview()})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

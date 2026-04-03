@@ -598,3 +598,25 @@ def _should_auto_apply(label_name: str, confidence: int) -> bool:
     rate = round(accepted / len(label_feedback) * 100)
 
     return rate >= threshold
+
+
+def get_customer_overview() -> List[Dict]:
+    """Return all customers with their label history for the overview page."""
+    cache = _load_history_cache()
+    customers = []
+    for contact_id, data in cache.items():
+        label_counts = data.get("label_counts", {})
+        sorted_labels = sorted(label_counts.items(), key=lambda x: x[1], reverse=True)
+        top_labels = [{"name": name, "count": count} for name, count in sorted_labels[:5]]
+
+        customers.append({
+            "contact_id": int(contact_id),
+            "label_counts": label_counts,
+            "ticket_count": data.get("ticket_count", 0),
+            "top_labels": top_labels,
+            "total_labels": len(label_counts),
+            "cached_at": data.get("cached_at", ""),
+        })
+
+    customers.sort(key=lambda x: x["ticket_count"], reverse=True)
+    return customers

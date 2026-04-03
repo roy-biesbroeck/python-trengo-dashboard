@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Klant Overzicht — Trengo</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='tagger.css') }}">
+    <style>
+        .search-bar {
+            width: 100%;
+            padding: 12px 16px;
+            font-size: 15px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            background: white;
+            color: #1e293b;
+        }
+        .search-bar:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+        .customer-card {
+            background: white;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            padding: 16px 20px;
+            transition: box-shadow 0.15s;
+        }
+        .customer-card:hover {
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+        }
+        .customer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .customer-id {
+            font-weight: 600;
+            font-size: 15px;
+            color: #1e293b;
+        }
+        .customer-ticket-count {
+            font-size: 13px;
+            color: #64748b;
+            background: #f1f5f9;
+            padding: 2px 10px;
+            border-radius: 12px;
+        }
+        .label-pills {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+        .label-pill {
+            font-size: 12px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            background: #f1f5f9;
+            color: #475569;
+            white-space: nowrap;
+        }
+        .label-pill .count {
+            font-weight: 600;
+            color: #3b82f6;
+            margin-left: 4px;
+        }
+        .label-pill.route {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        .summary-bar {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #64748b;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="header-left">
+                <h1>Klant Overzicht</h1>
+                <a href="/tagger" class="back-link">← Label Suggester</a>
+            </div>
+        </header>
+        <div class="summary-bar" id="summary-bar"></div>
+        <input type="text" class="search-bar" id="search"
+               placeholder="Zoek op klant ID of label naam..."
+               oninput="filterCustomers()">
+        <main class="queue" id="customer-list">
+            <div class="loading">Laden...</div>
+        </main>
+    </div>
+    <script src="{{ url_for('static', filename='customers.js') }}"></script>
+</body>
+</html>
