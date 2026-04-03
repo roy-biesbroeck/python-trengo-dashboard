@@ -13,6 +13,7 @@ from typing import Dict, List, Optional
 
 from trengo_client import TrengoClient
 from label_config import MANUAL_ONLY_LABELS, ROUTE_LABELS, SUGGESTABLE_LABELS, get_label_definitions_prompt, is_internal_contact
+from label_history_parser import get_ever_applied_labels
 from customer_matcher import CustomerMatcher
 
 logger = logging.getLogger("label_suggester")
@@ -599,7 +600,11 @@ def reject_suggestion(ticket_id: int, label_name: str) -> Dict:
 # ── Cache Refresh ────────────────────────────────────
 
 def refresh_customer_cache(client: TrengoClient = None) -> Dict:
-    """Re-scan closed tickets and update the customer label history cache."""
+    """Re-scan closed tickets and update the customer label history cache.
+
+    Uses label event parsing from ticket messages for accuracy.
+    Excludes internal contacts.
+    """
     if client is None:
         client = TrengoClient()
 
@@ -609,14 +614,26 @@ def refresh_customer_cache(client: TrengoClient = None) -> Dict:
         logger.error(f"Cache refresh fout: {e}")
         return {"error": str(e), "customers_updated": 0}
 
+    # Parse label events from messages
+    ticket_labels: Dict[int, set] = {}
     for ticket in closed_tickets:
-        if not ticket.get("labels"):
-            ticket["labels"] = client.get_ticket_labels(ticket["id"])
+        tid = ticket["id"]
+        try:
+            messages = client.get_ticket_messages(tid)
+            labels = get_ever_applied_labels(messages)
+            labels = {l for l in labels if l not in MANUAL_ONLY_LABELS}
+            ticket_labels[tid] = labels
+        except Exception:
+            ticket_labels[tid] = set()
 
+    # Group by contact, exclude internal
     groups: Dict[int, List[Dict]] = {}
     for ticket in closed_tickets:
         contact_id = _get_contact_id(ticket)
         if not contact_id:
+            continue
+        contact_name = (ticket.get("contact") or {}).get("name", "")
+        if is_internal_contact(name=contact_name):
             continue
         if contact_id not in groups:
             groups[contact_id] = []
@@ -625,9 +642,15 @@ def refresh_customer_cache(client: TrengoClient = None) -> Dict:
     cache = _load_history_cache()
     updated = 0
     for contact_id, tickets in groups.items():
-        label_counts = _count_labels_from_tickets(tickets)
+        label_counts: Dict[str, int] = {}
+        for ticket in tickets:
+            for label in ticket_labels.get(ticket["id"], set()):
+                label_counts[label] = label_counts.get(label, 0) + 1
+
         if label_counts:
+            contact_name = (tickets[0].get("contact") or {}).get("name", "Onbekend")
             cache[str(contact_id)] = {
+                "customer_name": contact_name,
                 "label_counts": label_counts,
                 "ticket_count": len(tickets),
                 "cached_at": datetime.now(timezone.utc).isoformat(),

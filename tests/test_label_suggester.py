@@ -434,26 +434,38 @@ class TestRefreshCustomerCache:
             {
                 "id": 1, "contact_id": 100,
                 "contact": {"id": 100, "name": "Test"},
-                "labels": [{"name": "Route Kust"}, {"name": "Support - Kassa"}],
                 "closed_at": "2026-04-01T10:00:00+00:00",
             },
             {
                 "id": 2, "contact_id": 100,
                 "contact": {"id": 100, "name": "Test"},
-                "labels": [{"name": "Route Kust"}],
                 "closed_at": "2026-04-02T10:00:00+00:00",
             },
             {
                 "id": 3, "contact_id": 200,
                 "contact": {"id": 200, "name": "Ander"},
-                "labels": [{"name": "Boekhoudkoppeling"}],
                 "closed_at": "2026-04-03T10:00:00+00:00",
             },
         ]
+        mock_client.get_ticket_messages.return_value = []
+
+        label_map = {
+            1: {"Route Kust", "Support - Kassa"},
+            2: {"Route Kust"},
+            3: {"Boekhoudkoppeling"},
+        }
+        call_order = [1, 2, 3]
+        call_index = {"i": 0}
+
+        def fake_ever_applied(msgs):
+            tid = call_order[call_index["i"]]
+            call_index["i"] += 1
+            return label_map[tid]
 
         # Also patch the history cache file to use tmp
         cache_file = str(clean_data_files[0]).replace("label_suggestions", "customer_label_history")
-        with patch("label_suggester.HISTORY_CACHE_FILE", cache_file):
+        with patch("label_suggester.HISTORY_CACHE_FILE", cache_file), \
+             patch("label_suggester.get_ever_applied_labels", side_effect=fake_ever_applied):
             result = refresh_customer_cache(client=mock_client)
 
         assert result["customers_updated"] >= 2
