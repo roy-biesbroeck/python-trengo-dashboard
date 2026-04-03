@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from trengo_client import TrengoClient
-from label_config import MANUAL_ONLY_LABELS, ROUTE_LABELS, SUGGESTABLE_LABELS, get_label_definitions_prompt
+from label_config import MANUAL_ONLY_LABELS, ROUTE_LABELS, SUGGESTABLE_LABELS, get_label_definitions_prompt, is_internal_contact
 
 logger = logging.getLogger("label_suggester")
 logger.setLevel(logging.INFO)
@@ -147,13 +147,48 @@ Ticket onderwerp: {subject}
 Ticket bericht: {message}"""
 
 
-def classify_ticket_content(subject: str, message: str) -> List[Dict]:
+def _build_internal_classification_prompt(subject: str, message: str, creator_name: str) -> str:
+    """Build GPT prompt for tickets created by internal team members."""
+    label_defs = get_label_definitions_prompt()
+    return f"""Je bent een ticket-classifier voor een Nederlands IT/kassa support bedrijf.
+
+BELANGRIJK: Dit ticket is aangemaakt door een interne collega ({creator_name})
+namens een klant. De echte klantnaam staat meestal op de eerste regel(s) van
+het bericht, vóór de eigenlijke beschrijving.
+
+Stap 1: Identificeer de echte klantnaam uit het bericht.
+Stap 2: Bepaal welke label(s) van toepassing zijn.
+
+Beschikbare labels:
+{label_defs}
+
+Regels:
+- Kies ALLEEN uit de bovenstaande labels, verzin nooit nieuwe labels
+- Geef per suggestie een confidence score van 0-100
+- Een ticket kan meerdere labels hebben
+- Antwoord ALLEEN in JSON formaat
+
+Antwoord formaat:
+{{"extracted_customer": "Klantnaam uit het bericht", "suggestions": [{{"label": "Labelnaam", "confidence": 85, "reason": "Korte uitleg"}}]}}
+
+Ticket onderwerp: {subject}
+Ticket bericht: {message}"""
+
+
+def classify_ticket_content(subject: str, message: str, internal_creator: str = None) -> Dict:
     """Classify ticket content using GPT-4o-mini.
-    Returns list of dicts: [{"label": str, "confidence": int, "reason": str}]
-    Returns empty list on any error."""
+
+    For internal tickets, also extracts the real customer name.
+
+    Returns dict: {"extracted_customer": str|None, "suggestions": [{"label", "confidence", "reason"}]}
+    """
     try:
         client = _get_openai_client()
-        prompt = _build_classification_prompt(subject, message)
+
+        if internal_creator:
+            prompt = _build_internal_classification_prompt(subject, message, internal_creator)
+        else:
+            prompt = _build_classification_prompt(subject, message)
 
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -178,14 +213,20 @@ def classify_ticket_content(subject: str, message: str) -> List[Dict]:
                     "confidence": int(s.get("confidence", 0)),
                     "reason": s.get("reason", ""),
                 })
-        return valid
+
+        extracted_customer = data.get("extracted_customer") if internal_creator else None
+
+        return {
+            "extracted_customer": extracted_customer,
+            "suggestions": valid,
+        }
 
     except json.JSONDecodeError:
         logger.warning(f"Ongeldige JSON van GPT voor ticket: {subject}")
-        return []
+        return {"extracted_customer": None, "suggestions": []}
     except Exception as e:
         logger.error(f"GPT classificatie fout: {e}")
-        return []
+        return {"extracted_customer": None, "suggestions": []}
 
 
 # ── Suggestion Combiner ──────────────────────────────
@@ -437,7 +478,14 @@ def scan_for_suggestions(
                 if contact_id:
                     customer_history = get_customer_label_history(client, contact_id)
 
-                content_suggestions = classify_ticket_content(subject, message_text)
+                # Detect internal ticket
+                creator_name = contact.get("name", "")
+                internal_creator = creator_name if is_internal_contact(name=creator_name) else None
+
+                # Layer 2: Content classification
+                classification = classify_ticket_content(subject, message_text, internal_creator=internal_creator)
+                content_suggestions = classification["suggestions"]
+                extracted_customer = classification.get("extracted_customer")
 
                 suggestions = combine_suggestions(
                     customer_history=customer_history,

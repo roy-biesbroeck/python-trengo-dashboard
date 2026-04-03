@@ -7,6 +7,7 @@ from label_suggester import (
     _count_labels_from_tickets,
     classify_ticket_content,
     _build_classification_prompt,
+    _build_internal_classification_prompt,
     combine_suggestions,
     add_to_queue, remove_from_queue, get_suggestion_queue,
     log_feedback, get_tagger_stats,
@@ -130,14 +131,15 @@ class TestClassifyTicketContent:
         with patch("label_suggester._get_openai_client", return_value=mock_client):
             result = classify_ticket_content("Kassa kapot", "De kassa doet het niet meer")
 
-        assert len(result) == 2
-        assert result[0]["label"] == "Support - Kassa"
-        assert result[0]["confidence"] == 92
+        assert len(result["suggestions"]) == 2
+        assert result["suggestions"][0]["label"] == "Support - Kassa"
+        assert result["suggestions"][0]["confidence"] == 92
 
     def test_returns_empty_on_api_error(self):
         with patch("label_suggester._get_openai_client", side_effect=Exception("API down")):
             result = classify_ticket_content("Test", "Test bericht")
-        assert result == []
+        assert result["suggestions"] == []
+        assert result["extracted_customer"] is None
 
     def test_returns_empty_on_malformed_response(self):
         mock_response = MagicMock()
@@ -149,7 +151,8 @@ class TestClassifyTicketContent:
 
         with patch("label_suggester._get_openai_client", return_value=mock_client):
             result = classify_ticket_content("Test", "Test bericht")
-        assert result == []
+        assert result["suggestions"] == []
+        assert result["extracted_customer"] is None
 
     def test_filters_out_unknown_labels(self):
         mock_response = MagicMock()
@@ -166,8 +169,8 @@ class TestClassifyTicketContent:
 
         with patch("label_suggester._get_openai_client", return_value=mock_client):
             result = classify_ticket_content("Test", "Test")
-        assert len(result) == 1
-        assert result[0]["label"] == "Support - Kassa"
+        assert len(result["suggestions"]) == 1
+        assert result["suggestions"][0]["label"] == "Support - Kassa"
 
 
 class TestCombineSuggestions:
@@ -353,9 +356,12 @@ class TestScanForSuggestions:
         ]
         mock_client.get_closed_tickets.return_value = []
 
-        mock_gpt_result = [
-            {"label": "Support - Kassa", "confidence": 90, "reason": "Kassa probleem"},
-        ]
+        mock_gpt_result = {
+            "extracted_customer": None,
+            "suggestions": [
+                {"label": "Support - Kassa", "confidence": 90, "reason": "Kassa probleem"},
+            ],
+        }
         with patch("label_suggester.classify_ticket_content", return_value=mock_gpt_result), \
              patch("label_suggester._load_history_cache", return_value={}), \
              patch("label_suggester._save_history_cache"):
@@ -405,9 +411,12 @@ class TestScanForSuggestions:
         ]
         mock_client.get_closed_tickets.return_value = []
 
-        mock_gpt_result = [
-            {"label": "Urgent", "confidence": 30, "reason": "Misschien"},
-        ]
+        mock_gpt_result = {
+            "extracted_customer": None,
+            "suggestions": [
+                {"label": "Urgent", "confidence": 30, "reason": "Misschien"},
+            ],
+        }
         with patch("label_suggester.classify_ticket_content", return_value=mock_gpt_result), \
              patch("label_suggester._load_history_cache", return_value={}), \
              patch("label_suggester._save_history_cache"):
@@ -563,3 +572,68 @@ class TestAcceptReject:
 
         queue = get_suggestion_queue()
         assert len(queue) == 0
+
+
+class TestBuildInternalClassificationPrompt:
+    def test_includes_internal_instruction(self):
+        prompt = _build_internal_classification_prompt(
+            "Kassa kapot", "La Porte Dór\n\nKassa start niet meer op",
+            creator_name="Jos Biesbroeck",
+        )
+        assert "interne collega" in prompt
+        assert "Jos Biesbroeck" in prompt
+
+    def test_includes_label_definitions(self):
+        prompt = _build_internal_classification_prompt("Test", "Test", creator_name="Jos")
+        assert "Route Kust" in prompt
+        assert "Support - Kassa" in prompt
+
+    def test_requests_extracted_customer(self):
+        prompt = _build_internal_classification_prompt("Test", "Test", creator_name="Jos")
+        assert "extracted_customer" in prompt
+
+    def test_normal_prompt_unchanged(self):
+        prompt = _build_classification_prompt("Test", "Test bericht")
+        assert "interne collega" not in prompt
+
+
+class TestClassifyInternalTicket:
+    def test_returns_extracted_customer(self):
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = json.dumps({
+            "extracted_customer": "La Porte Dór",
+            "suggestions": [
+                {"label": "Support - Kassa", "confidence": 88, "reason": "Kassa probleem"},
+            ]
+        })
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        with patch("label_suggester._get_openai_client", return_value=mock_client):
+            result = classify_ticket_content(
+                "Kassa kapot", "La Porte Dór\n\nKassa start niet op",
+                internal_creator="Jos Biesbroeck",
+            )
+
+        assert result["extracted_customer"] == "La Porte Dór"
+        assert len(result["suggestions"]) == 1
+
+    def test_normal_ticket_no_extracted_customer(self):
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = json.dumps({
+            "suggestions": [
+                {"label": "Support - Kassa", "confidence": 90, "reason": "Kassa"},
+            ]
+        })
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        with patch("label_suggester._get_openai_client", return_value=mock_client):
+            result = classify_ticket_content("Kassa kapot", "Mijn kassa doet het niet")
+
+        assert result["extracted_customer"] is None
+        assert len(result["suggestions"]) == 1
