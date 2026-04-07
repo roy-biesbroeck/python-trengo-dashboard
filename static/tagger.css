@@ -87,6 +87,22 @@ body {
     border-color: #fca5a5;
 }
 
+.btn-open {
+    background: #f1f5f9;
+    color: #475569;
+    border: 1px solid #e2e8f0;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    font-size: 13px;
+    padding: 6px 12px;
+    flex-shrink: 0;
+}
+.btn-open:hover {
+    background: #e2e8f0;
+    color: #1e293b;
+}
+
 .queue {
     display: flex;
     flex-direction: column;

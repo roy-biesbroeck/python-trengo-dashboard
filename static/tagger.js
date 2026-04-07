@@ -32,6 +32,7 @@ function renderQueue(queue) {
     }
     emptyEl.style.display = 'none';
     queueEl.innerHTML = queue.map(function(ticket) {
+        var trengoUrl = 'https://app.trengo.com/tickets/' + ticket.ticket_id;
         return '<div class="ticket-card" id="ticket-' + ticket.ticket_id + '">' +
             '<div class="ticket-header"><div>' +
             '<span class="ticket-id">#' + ticket.ticket_id + '</span>' +
@@ -44,7 +45,9 @@ function renderQueue(queue) {
                 }
                 return customerLine;
             })() + '</div>' +
-            '</div></div>' +
+            '</div>' +
+            '<a class="btn btn-open" href="' + trengoUrl + '" target="_blank" rel="noopener">Open in Trengo →</a>' +
+            '</div>' +
             (ticket.message_preview ? '<div class="ticket-preview">' + escapeHtml(ticket.message_preview) + '</div>' : '') +
             '<div class="suggestions">' +
             ticket.suggestions.map(function(s) { return renderSuggestion(ticket.ticket_id, s); }).join('') +
