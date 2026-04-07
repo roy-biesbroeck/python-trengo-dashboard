@@ -455,7 +455,18 @@ def scan_for_suggestions(
         assigned_tickets = client.get_tickets("ASSIGNED")
         all_tickets = open_tickets + assigned_tickets
 
+        # Build set of currently active ticket IDs
+        active_ids = {t.get("id") for t in all_tickets if isinstance(t, dict) and t.get("id")}
+
+        # Prune queue: remove entries for tickets that are no longer OPEN/ASSIGNED
         queue = _load_queue()
+        before_prune = len(queue)
+        queue = [q for q in queue if q["ticket_id"] in active_ids]
+        if len(queue) < before_prune:
+            _save_queue(queue)
+            result["pruned"] = before_prune - len(queue)
+            logger.info(f"Wachtrij opgeschoond: {result['pruned']} oude tickets verwijderd")
+
         queued_ids = {q["ticket_id"] for q in queue}
 
         _scan_progress["phase"] = "processing"
