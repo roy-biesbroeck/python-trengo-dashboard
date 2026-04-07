@@ -70,7 +70,7 @@ class TrengoClient:
 
             except requests.exceptions.HTTPError as e:
                 if e.response is not None and e.response.status_code == 429:
-                    print(f"Rate limit bereikt, 2 seconden wachten...")
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] Rate limit bereikt, 2 seconden wachten...")
                     time.sleep(2)
                     continue
                 print(f"HTTP fout bij {endpoint} (pagina {page}): {e}")
