@@ -419,6 +419,14 @@ def get_tagger_stats() -> Dict:
 
 # ── Scan Orchestrator ────────────────────────────────
 
+_scan_progress = {"current": 0, "total": 0, "phase": "idle"}
+
+
+def get_scan_progress() -> Dict:
+    """Return current scan progress for live UI updates."""
+    return _scan_progress.copy()
+
+
 def scan_for_suggestions(
     client: TrengoClient = None,
     threshold: int = None,
@@ -438,6 +446,10 @@ def scan_for_suggestions(
         "ts": datetime.now(timezone.utc).isoformat(),
     }
 
+    _scan_progress["phase"] = "fetching"
+    _scan_progress["current"] = 0
+    _scan_progress["total"] = 0
+
     try:
         open_tickets = client.get_tickets("OPEN")
         assigned_tickets = client.get_tickets("ASSIGNED")
@@ -446,7 +458,13 @@ def scan_for_suggestions(
         queue = _load_queue()
         queued_ids = {q["ticket_id"] for q in queue}
 
+        _scan_progress["phase"] = "processing"
+        _scan_progress["total"] = len(all_tickets)
+        _scan_progress["current"] = 0
+
         for ticket in all_tickets:
+            _scan_progress["current"] += 1
+
             if not isinstance(ticket, dict):
                 continue
 
@@ -533,6 +551,7 @@ def scan_for_suggestions(
         result["error"] = str(e)
         logger.error(f"Scan fout: {e}")
 
+    _scan_progress["phase"] = "idle"
     logger.info(
         f"Scan klaar: {result['scanned']} verwerkt, "
         f"{result['suggested']} suggesties, "

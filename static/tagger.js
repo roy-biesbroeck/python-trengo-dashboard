@@ -141,7 +141,20 @@ async function checkScanStatus() {
         // Refresh queue while scanning so new suggestions appear live
         loadQueue();
 
-        if (!status.running) {
+        if (status.running) {
+            // Update progress banner
+            var progress = status.progress || {};
+            var phase = progress.phase || 'fetching';
+            var text;
+            if (phase === 'fetching') {
+                text = 'Tickets ophalen van Trengo... (kan even duren bij rate limits)';
+            } else if (phase === 'processing' && progress.total > 0) {
+                text = 'Verwerken: ' + progress.current + ' van ' + progress.total + ' tickets...';
+            } else {
+                text = 'Scan loopt...';
+            }
+            showScanBanner(text);
+        } else {
             // Scan finished
             clearInterval(scanPollInterval);
             scanPollInterval = null;

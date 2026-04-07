@@ -7,7 +7,7 @@ from trengo_client import TrengoClient, parse_datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 from autoclose import run_autoclose, get_last_result
 from label_suggester import (
-    scan_for_suggestions, get_suggestion_queue,
+    scan_for_suggestions, get_suggestion_queue, get_scan_progress,
     accept_suggestion, reject_suggestion, get_tagger_stats,
     refresh_customer_cache, get_customer_overview,
 )
@@ -305,12 +305,13 @@ def tagger_scan():
 
 @app.route("/api/tagger/scan/status")
 def tagger_scan_status():
-    """Return current scan status (running/idle + last result)."""
+    """Return current scan status (running/idle + progress + last result)."""
     with _scan_lock:
         return jsonify({
             "running": _scan_state["running"],
             "started_at": _scan_state["started_at"],
             "result": _scan_state["result"],
+            "progress": get_scan_progress(),
         })
 
 
