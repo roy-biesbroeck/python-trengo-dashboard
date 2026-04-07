@@ -87,6 +87,17 @@ body {
     border-color: #fca5a5;
 }
 
+.btn-ignore {
+    background: transparent;
+    color: #94a3b8;
+    border: 1px solid #e2e8f0;
+}
+.btn-ignore:hover:not(:disabled) {
+    background: #f8fafc;
+    color: #64748b;
+    border-color: #cbd5e1;
+}
+
 .btn-open {
     background: #f1f5f9;
     color: #475569;

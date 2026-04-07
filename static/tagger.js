@@ -67,6 +67,7 @@ function renderSuggestion(ticketId, s) {
         '<div class="suggestion-actions">' +
         '<button class="btn btn-accept" onclick="acceptLabel(' + ticketId + ', \'' + escapeJs(s.label) + '\')">Accepteer</button>' +
         '<button class="btn btn-reject" onclick="rejectLabel(' + ticketId + ', \'' + escapeJs(s.label) + '\')">Afwijzen</button>' +
+        '<button class="btn btn-ignore" onclick="ignoreLabel(' + ticketId + ', \'' + escapeJs(s.label) + '\')" title="Verwijder zonder feedback te loggen">Negeer</button>' +
         '</div></div>';
 }
 
@@ -106,6 +107,23 @@ async function rejectLabel(ticketId, labelName) {
         setTimeout(loadQueue, 500);
     } catch (err) {
         alert('Netwerkfout bij afwijzen');
+        if (row) enableButtons(row);
+    }
+}
+
+async function ignoreLabel(ticketId, labelName) {
+    var row = document.getElementById('suggestion-' + ticketId + '-' + slugify(labelName));
+    if (row) disableButtons(row);
+    try {
+        await fetch('/api/tagger/ignore', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ticket_id: ticketId, label_name: labelName }),
+        });
+        if (row) row.style.background = '#f8fafc';
+        setTimeout(loadQueue, 500);
+    } catch (err) {
+        alert('Netwerkfout bij negeren');
         if (row) enableButtons(row);
     }
 }

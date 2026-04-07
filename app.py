@@ -7,7 +7,7 @@ from trengo_client import TrengoClient, parse_datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 from autoclose import run_autoclose, get_last_result
 from label_suggester import (
-    scan_for_suggestions, get_suggestion_queue, get_scan_progress,
+    scan_for_suggestions, get_suggestion_queue, get_scan_progress, ignore_suggestion,
     accept_suggestion, reject_suggestion, get_tagger_stats,
     refresh_customer_cache, get_customer_overview,
 )
@@ -263,6 +263,21 @@ def tagger_reject():
         if not ticket_id or not label_name:
             return jsonify({"error": "ticket_id en label_name zijn verplicht"}), 400
         result = reject_suggestion(ticket_id=ticket_id, label_name=label_name)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/tagger/ignore", methods=["POST"])
+def tagger_ignore():
+    """Ignore a suggestion (no feedback logged)."""
+    try:
+        data = request.get_json()
+        ticket_id = data.get("ticket_id")
+        label_name = data.get("label_name")
+        if not ticket_id or not label_name:
+            return jsonify({"error": "ticket_id en label_name zijn verplicht"}), 400
+        result = ignore_suggestion(ticket_id=ticket_id, label_name=label_name)
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500

@@ -642,6 +642,17 @@ def reject_suggestion(ticket_id: int, label_name: str) -> Dict:
     return {"success": True}
 
 
+def ignore_suggestion(ticket_id: int, label_name: str) -> Dict:
+    """Ignore a suggestion: remove from queue without logging feedback.
+
+    Use during tuning when you don't want the rejection to count toward
+    future auto-apply decisions.
+    """
+    remove_from_queue(ticket_id, label_name)
+    logger.info(f"Label '{label_name}' genegeerd voor ticket #{ticket_id} (geen feedback)")
+    return {"success": True}
+
+
 # ── Cache Refresh ────────────────────────────────────
 
 def refresh_customer_cache(client: TrengoClient = None) -> Dict:
