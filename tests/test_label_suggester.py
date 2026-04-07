@@ -187,34 +187,36 @@ class TestCombineSuggestions:
         assert len(result) == 2
         assert result[0]["label"] == "Support - Kassa"
 
-    def test_route_from_history_overrides_content(self):
+    def test_route_from_history_when_visit_needed(self):
         customer_history = {"Route Kust": 8, "Support - Kassa": 2}
         content_suggestions = [
-            {"label": "Route Hulst", "confidence": 75, "reason": "Locatie in Hulst"},
             {"label": "Support - Kassa", "confidence": 90, "reason": "Kassa probleem"},
         ]
         result = combine_suggestions(
             customer_history=customer_history,
             content_suggestions=content_suggestions,
             threshold=70,
+            needs_visit=True,
         )
         labels = [s["label"] for s in result]
         assert "Route Kust" in labels
-        assert "Route Hulst" not in labels
         assert "Support - Kassa" in labels
 
-    def test_route_history_weak_falls_back_to_content(self):
-        customer_history = {"Route Kust": 2}
+    def test_no_route_when_visit_not_needed(self):
+        """Route history exists but ticket doesn't need a visit — no route suggested."""
+        customer_history = {"Route Kust": 27}
         content_suggestions = [
-            {"label": "Route Hulst", "confidence": 85, "reason": "Locatie in Hulst"},
+            {"label": "Bestelling", "confidence": 80, "reason": "Administratief"},
         ]
         result = combine_suggestions(
             customer_history=customer_history,
             content_suggestions=content_suggestions,
             threshold=70,
+            needs_visit=False,
         )
         labels = [s["label"] for s in result]
-        assert "Route Hulst" in labels
+        assert "Route Kust" not in labels
+        assert "Bestelling" in labels
 
     def test_confidence_threshold_filters_low(self):
         content_suggestions = [
@@ -243,13 +245,14 @@ class TestCombineSuggestions:
         assert len(result) == 1
         assert result[0]["confidence"] > 72
 
-    def test_route_from_history_shows_count(self):
+    def test_route_from_history_shows_count_when_visit_needed(self):
         customer_history = {"Route Kust": 6}
         content_suggestions = []
         result = combine_suggestions(
             customer_history=customer_history,
             content_suggestions=content_suggestions,
             threshold=70,
+            needs_visit=True,
         )
         assert len(result) == 1
         assert result[0]["label"] == "Route Kust"
@@ -668,6 +671,7 @@ class TestScanInternalTicket:
 
         mock_gpt_result = {
             "extracted_customer": "La Porte Dór",
+            "needs_visit": True,
             "suggestions": [
                 {"label": "Support - Kassa", "confidence": 90, "reason": "Kassa probleem"},
             ],

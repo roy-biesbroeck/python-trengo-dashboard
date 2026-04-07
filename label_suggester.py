@@ -127,6 +127,24 @@ def _get_openai_client():
     return _openai_client
 
 
+_NEEDS_VISIT_GUIDANCE = """
+Bepaal ook of dit ticket een fysiek bezoek aan de klantlocatie vereist.
+Een bezoek is nodig bij bijvoorbeeld:
+- Apparaat installatie of vervanging op locatie
+- Netwerk/internet problemen die ter plekke gefixt moeten worden
+- "Langsgaan", "kom langs", "wanneer kunnen jullie hier zijn"
+- Setup of configuratie die alleen op locatie kan
+- Klant kan apparaat niet zelf opsturen
+
+Een bezoek is NIET nodig bij:
+- Administratieve vragen (afkoopsom, facturen, koppelingen)
+- Bestellingen / kassarollen
+- Vragen over instellingen die remote opgelost kunnen worden
+- Reparaties die op kantoor gebeuren (klant brengt langs of stuurt op)
+- Boekhoudkoppelingen
+"""
+
+
 def _build_classification_prompt(subject: str, message: str) -> str:
     """Build the full prompt for GPT-4o-mini ticket classification."""
     label_defs = get_label_definitions_prompt()
@@ -135,15 +153,16 @@ Bepaal welke label(s) van toepassing zijn op dit ticket.
 
 Beschikbare labels:
 {label_defs}
-
+{_NEEDS_VISIT_GUIDANCE}
 Regels:
 - Kies ALLEEN uit de bovenstaande labels, verzin nooit nieuwe labels
 - Geef per suggestie een confidence score van 0-100
-- Een ticket kan meerdere labels hebben (bijv. "Reparatie @klant" + "Route Kust")
+- Een ticket kan meerdere labels hebben
 - Antwoord ALLEEN in JSON formaat
+- needs_visit moet true of false zijn
 
 Antwoord formaat:
-{{"suggestions": [{{"label": "Labelnaam", "confidence": 85, "reason": "Korte uitleg"}}]}}
+{{"needs_visit": false, "suggestions": [{{"label": "Labelnaam", "confidence": 85, "reason": "Korte uitleg"}}]}}
 
 Ticket onderwerp: {subject}
 Ticket bericht: {message}"""
@@ -160,18 +179,20 @@ het bericht, vóór de eigenlijke beschrijving.
 
 Stap 1: Identificeer de echte klantnaam uit het bericht.
 Stap 2: Bepaal welke label(s) van toepassing zijn.
+Stap 3: Bepaal of dit ticket een fysiek bezoek vereist.
 
 Beschikbare labels:
 {label_defs}
-
+{_NEEDS_VISIT_GUIDANCE}
 Regels:
 - Kies ALLEEN uit de bovenstaande labels, verzin nooit nieuwe labels
 - Geef per suggestie een confidence score van 0-100
 - Een ticket kan meerdere labels hebben
 - Antwoord ALLEEN in JSON formaat
+- needs_visit moet true of false zijn
 
 Antwoord formaat:
-{{"extracted_customer": "Klantnaam uit het bericht", "suggestions": [{{"label": "Labelnaam", "confidence": 85, "reason": "Korte uitleg"}}]}}
+{{"extracted_customer": "Klantnaam uit het bericht", "needs_visit": false, "suggestions": [{{"label": "Labelnaam", "confidence": 85, "reason": "Korte uitleg"}}]}}
 
 Ticket onderwerp: {subject}
 Ticket bericht: {message}"""
@@ -217,18 +238,20 @@ def classify_ticket_content(subject: str, message: str, internal_creator: str = 
                 })
 
         extracted_customer = data.get("extracted_customer") if internal_creator else None
+        needs_visit = bool(data.get("needs_visit", False))
 
         return {
             "extracted_customer": extracted_customer,
+            "needs_visit": needs_visit,
             "suggestions": valid,
         }
 
     except json.JSONDecodeError:
         logger.warning(f"Ongeldige JSON van GPT voor ticket: {subject}")
-        return {"extracted_customer": None, "suggestions": []}
+        return {"extracted_customer": None, "needs_visit": False, "suggestions": []}
     except Exception as e:
         logger.error(f"GPT classificatie fout: {e}")
-        return {"extracted_customer": None, "suggestions": []}
+        return {"extracted_customer": None, "needs_visit": False, "suggestions": []}
 
 
 # ── Suggestion Combiner ──────────────────────────────
@@ -240,11 +263,13 @@ def combine_suggestions(
     customer_history: Dict[str, int],
     content_suggestions: List[Dict],
     threshold: int = 70,
+    needs_visit: bool = False,
 ) -> List[Dict]:
     """Combine Layer 1 (history) and Layer 2 (content) suggestions.
 
     Priority rules:
-    - Route labels: customer history wins if strong (>= 3 tickets)
+    - Route labels are ONLY suggested when needs_visit=True
+    - When a visit is needed, customer history picks the right route
     - Non-route labels: content classification wins, boosted by history
     - All suggestions below confidence threshold are excluded
 
@@ -252,9 +277,12 @@ def combine_suggestions(
     """
     results: Dict[str, Dict] = {}
 
-    # Step 1: Add content suggestions
+    # Step 1: Add content suggestions (excluding routes — handled separately)
     for s in content_suggestions:
         label = s["label"]
+        if label in ROUTE_LABELS:
+            continue  # routes only via needs_visit logic below
+
         confidence = s["confidence"]
         reason = s["reason"]
 
@@ -271,41 +299,26 @@ def combine_suggestions(
             "source": "content",
         }
 
-    # Step 2: For route labels, let history override if strong
-    history_routes = {
-        name: count for name, count in customer_history.items()
-        if name in ROUTE_LABELS and count >= ROUTE_HISTORY_STRONG_THRESHOLD
-    }
-
-    if history_routes:
-        for route_name in ROUTE_LABELS:
-            if route_name in results:
-                del results[route_name]
-
-        best_route = max(history_routes, key=history_routes.get)
-        best_count = history_routes[best_route]
-        confidence = min(60 + best_count * 5, 98)
-
-        results[best_route] = {
-            "label": best_route,
-            "confidence": confidence,
-            "reason": f"Klant eerder {best_count}x op deze route",
-            "source": "history",
+    # Step 2: Routes — only when needs_visit is True
+    if needs_visit:
+        history_routes = {
+            name: count for name, count in customer_history.items()
+            if name in ROUTE_LABELS
         }
 
-    # Step 3: Add route from history even if content didn't suggest any route
-    if not any(name in results for name in ROUTE_LABELS):
-        for name in ROUTE_LABELS:
-            count = customer_history.get(name, 0)
-            if count >= ROUTE_HISTORY_STRONG_THRESHOLD:
-                confidence = min(60 + count * 5, 98)
-                results[name] = {
-                    "label": name,
-                    "confidence": confidence,
-                    "reason": f"Klant eerder {count}x op deze route",
-                    "source": "history",
-                }
-                break
+        if history_routes:
+            # Pick the customer's most-frequent route
+            best_route = max(history_routes, key=history_routes.get)
+            best_count = history_routes[best_route]
+            confidence = min(60 + best_count * 5, 98)
+
+            results[best_route] = {
+                "label": best_route,
+                "confidence": confidence,
+                "reason": f"Bezoek nodig — klant eerder {best_count}x op deze route",
+                "source": "history",
+            }
+        # If needs_visit but no route history → no route suggestion (manual)
 
     # Step 4: Filter by confidence threshold
     filtered = [
@@ -513,6 +526,7 @@ def scan_for_suggestions(
                 classification = classify_ticket_content(subject, message_text, internal_creator=internal_creator)
                 content_suggestions = classification["suggestions"]
                 extracted_customer = classification.get("extracted_customer")
+                needs_visit = classification.get("needs_visit", False)
 
                 # Layer 1: Customer history
                 customer_history = {}
@@ -533,6 +547,7 @@ def scan_for_suggestions(
                     customer_history=customer_history,
                     content_suggestions=content_suggestions,
                     threshold=threshold,
+                    needs_visit=needs_visit,
                 )
 
                 if suggestions:
