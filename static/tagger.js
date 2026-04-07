@@ -167,17 +167,18 @@ async function checkScanStatus() {
 }
 
 function showScanBanner(text, type) {
-    hideScanBanner();
+    var container = document.getElementById('scan-banner-container');
+    container.innerHTML = '';
     var banner = document.createElement('div');
     banner.id = 'scan-banner';
     banner.className = 'scan-result' + (type === 'error' ? ' scan-result-error' : '');
     banner.textContent = text;
-    queueEl.prepend(banner);
+    container.appendChild(banner);
 }
 
 function hideScanBanner() {
-    var existing = document.getElementById('scan-banner');
-    if (existing) existing.remove();
+    var container = document.getElementById('scan-banner-container');
+    if (container) container.innerHTML = '';
 }
 
 function escapeHtml(str) {
