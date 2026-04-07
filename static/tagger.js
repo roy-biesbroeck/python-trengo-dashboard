@@ -110,24 +110,74 @@ async function rejectLabel(ticketId, labelName) {
     }
 }
 
+var scanPollInterval = null;
+
 async function triggerScan() {
     btnScan.disabled = true;
     btnScan.textContent = 'Scannen...';
+
+    // Show progress banner
+    showScanBanner('Scan gestart — tickets ophalen van Trengo (kan even duren bij rate limits)...');
+
     try {
-        var resp = await fetch('/api/tagger/scan', { method: 'POST' });
-        var data = await resp.json();
-        var msg = document.createElement('div');
-        msg.className = 'scan-result';
-        msg.textContent = 'Scan klaar: ' + (data.scanned || 0) + ' verwerkt, ' + (data.suggested || 0) + ' nieuwe suggesties';
-        queueEl.prepend(msg);
-        setTimeout(function() { msg.remove(); }, 5000);
-        loadQueue();
+        await fetch('/api/tagger/scan', { method: 'POST' });
+
+        // Poll status every 3 seconds
+        scanPollInterval = setInterval(checkScanStatus, 3000);
+        loadQueue(); // immediate refresh
     } catch (err) {
-        alert('Fout bij scannen');
-    } finally {
+        hideScanBanner();
+        alert('Fout bij starten scan');
         btnScan.disabled = false;
         btnScan.textContent = 'Scan Nu';
     }
+}
+
+async function checkScanStatus() {
+    try {
+        var resp = await fetch('/api/tagger/scan/status');
+        var status = await resp.json();
+
+        // Refresh queue while scanning so new suggestions appear live
+        loadQueue();
+
+        if (!status.running) {
+            // Scan finished
+            clearInterval(scanPollInterval);
+            scanPollInterval = null;
+            btnScan.disabled = false;
+            btnScan.textContent = 'Scan Nu';
+
+            var result = status.result || {};
+            if (result.error) {
+                showScanBanner('Scan fout: ' + result.error, 'error');
+            } else {
+                showScanBanner(
+                    'Scan klaar: ' + (result.scanned || 0) + ' verwerkt, ' +
+                    (result.suggested || 0) + ' nieuwe suggesties, ' +
+                    (result.skipped_has_labels || 0) + ' al gelabeld',
+                    'success'
+                );
+            }
+            setTimeout(hideScanBanner, 6000);
+        }
+    } catch (err) {
+        console.error('Status check failed', err);
+    }
+}
+
+function showScanBanner(text, type) {
+    hideScanBanner();
+    var banner = document.createElement('div');
+    banner.id = 'scan-banner';
+    banner.className = 'scan-result' + (type === 'error' ? ' scan-result-error' : '');
+    banner.textContent = text;
+    queueEl.prepend(banner);
+}
+
+function hideScanBanner() {
+    var existing = document.getElementById('scan-banner');
+    if (existing) existing.remove();
 }
 
 function escapeHtml(str) {
@@ -153,5 +203,20 @@ function enableButtons(row) {
     row.querySelectorAll('.btn').forEach(function(b) { b.disabled = false; });
 }
 
+// Resume scan polling if a scan is already running
+async function resumeScanPollIfRunning() {
+    try {
+        var resp = await fetch('/api/tagger/scan/status');
+        var status = await resp.json();
+        if (status.running) {
+            btnScan.disabled = true;
+            btnScan.textContent = 'Scannen...';
+            showScanBanner('Scan loopt al — wachten op resultaten...');
+            scanPollInterval = setInterval(checkScanStatus, 3000);
+        }
+    } catch (err) {}
+}
+
 loadQueue();
+resumeScanPollIfRunning();
 setInterval(loadQueue, 60000);

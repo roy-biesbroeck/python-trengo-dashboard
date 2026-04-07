@@ -268,14 +268,50 @@ def tagger_reject():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/tagger/scan", methods=["POST"])
-def tagger_scan():
-    """Manually trigger a suggestion scan."""
+import threading
+
+_scan_state = {"running": False, "started_at": None, "result": None}
+_scan_lock = threading.Lock()
+
+
+def _run_scan_background():
     try:
         result = scan_for_suggestions()
-        return jsonify(result)
+        with _scan_lock:
+            _scan_state["result"] = result
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        with _scan_lock:
+            _scan_state["result"] = {"error": str(e)}
+    finally:
+        with _scan_lock:
+            _scan_state["running"] = False
+
+
+@app.route("/api/tagger/scan", methods=["POST"])
+def tagger_scan():
+    """Manually trigger a suggestion scan (runs in background)."""
+    with _scan_lock:
+        if _scan_state["running"]:
+            return jsonify({"status": "already_running", "started_at": _scan_state["started_at"]})
+        _scan_state["running"] = True
+        _scan_state["started_at"] = datetime.now(timezone.utc).isoformat()
+        _scan_state["result"] = None
+
+    thread = threading.Thread(target=_run_scan_background, daemon=True)
+    thread.start()
+
+    return jsonify({"status": "started", "started_at": _scan_state["started_at"]})
+
+
+@app.route("/api/tagger/scan/status")
+def tagger_scan_status():
+    """Return current scan status (running/idle + last result)."""
+    with _scan_lock:
+        return jsonify({
+            "running": _scan_state["running"],
+            "started_at": _scan_state["started_at"],
+            "result": _scan_state["result"],
+        })
 
 
 @app.route("/customers")
