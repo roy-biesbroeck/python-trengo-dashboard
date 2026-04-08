@@ -83,3 +83,98 @@ def test_strip_html_handles_none():
 
 def test_strip_html_handles_plain_text():
     assert strip_html("gewoon tekst") == "gewoon tekst"
+
+
+import json
+from ticket_cache import init_db, upsert_ticket, upsert_messages, get_ticket, get_messages
+
+
+def _sample_ticket(tid=101, contact_id=55, closed_at="2026-04-01T10:00:00Z", msgs=3):
+    return {
+        "id": tid,
+        "contact_id": contact_id,
+        "subject": "Kassa start niet op",
+        "status": "CLOSED",
+        "created_at": "2026-03-30T09:00:00Z",
+        "closed_at": closed_at,
+        "messages_count": msgs,
+        "contact": {"id": contact_id, "name": "Bakkerij Jansen"},
+    }
+
+
+def _sample_messages(ticket_id=101):
+    return [
+        {
+            "id": 9001,
+            "ticket_id": ticket_id,
+            "created_at": "2026-03-30T09:00:00Z",
+            "type": "INBOUND",
+            "body": "<p>De kassa geeft een foutmelding E42</p>",
+        },
+        {
+            "id": 9002,
+            "ticket_id": ticket_id,
+            "created_at": "2026-03-30T09:05:00Z",
+            "type": "OUTBOUND",
+            "body": "Kunt u de kassa herstarten?",
+        },
+    ]
+
+
+def test_upsert_ticket_inserts_new_row():
+    conn = init_db(":memory:")
+    was_written = upsert_ticket(conn, _sample_ticket())
+    assert was_written is True
+
+    row = get_ticket(conn, 101)
+    assert row["ticket_id"] == 101
+    assert row["contact_id"] == 55
+    assert row["subject"] == "Kassa start niet op"
+    assert row["status"] == "CLOSED"
+    assert row["closed_at"] == "2026-04-01T10:00:00Z"
+    assert row["message_count"] == 3
+    # raw_payload round-trips as JSON
+    payload = json.loads(row["raw_payload"])
+    assert payload["id"] == 101
+
+
+def test_upsert_ticket_skips_unchanged_ticket():
+    conn = init_db(":memory:")
+    upsert_ticket(conn, _sample_ticket())
+    was_written = upsert_ticket(conn, _sample_ticket())
+    assert was_written is False  # fingerprint unchanged
+
+
+def test_upsert_ticket_updates_when_fingerprint_changes():
+    conn = init_db(":memory:")
+    upsert_ticket(conn, _sample_ticket(msgs=3))
+    was_written = upsert_ticket(conn, _sample_ticket(msgs=5))
+    assert was_written is True
+    row = get_ticket(conn, 101)
+    assert row["message_count"] == 5
+
+
+def test_upsert_messages_stores_stripped_body():
+    conn = init_db(":memory:")
+    upsert_ticket(conn, _sample_ticket())
+    count = upsert_messages(conn, 101, _sample_messages())
+    assert count == 2
+    msgs = get_messages(conn, 101)
+    assert len(msgs) == 2
+    first = next(m for m in msgs if m["message_id"] == 9001)
+    assert first["body_text"] == "De kassa geeft een foutmelding E42"
+    assert first["author_type"] == "INBOUND"
+
+
+def test_upsert_messages_replaces_existing_messages_for_ticket():
+    """Re-upserting must not duplicate rows."""
+    conn = init_db(":memory:")
+    upsert_ticket(conn, _sample_ticket())
+    upsert_messages(conn, 101, _sample_messages())
+    upsert_messages(conn, 101, _sample_messages())  # same again
+    assert len(get_messages(conn, 101)) == 2
+
+
+def test_get_ticket_returns_none_for_missing_id():
+    conn = init_db(":memory:")
+    assert get_ticket(conn, 999) is None
