@@ -41,7 +41,8 @@ class TrengoClient:
 
         while True:
             base_params["page"] = page
-            base_params["limit"] = 100
+            base_params["limit"] = 100      # legacy/redundant — keep for safety
+            base_params["per_page"] = 100   # the actual Trengo param
 
             try:
                 response = requests.get(
@@ -65,7 +66,7 @@ class TrengoClient:
                     break
 
                 page += 1
-                if page > 200:  # Veiligheidsgrens
+                if page > 2000:  # Veiligheidsgrens
                     break
 
             except requests.exceptions.HTTPError as e:
