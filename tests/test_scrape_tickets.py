@@ -99,3 +99,27 @@ def test_scrape_all_closed_calls_progress_callback():
     last_done, last_total = calls[-1]
     assert last_total == 5
     assert last_done == 5
+
+
+def test_scrape_all_closed_continues_when_one_fetch_raises():
+    """A single failing fetch must not abort the entire run."""
+    conn = init_db(":memory:")
+    tickets = [_ticket(1), _ticket(2), _ticket(3)]
+    client = MagicMock()
+    client.get_all_closed_tickets.return_value = tickets
+
+    def flaky(tid):
+        if tid == 2:
+            raise RuntimeError("simulated network error")
+        return [_msg(tid * 10, tid)]
+
+    client.get_ticket_messages.side_effect = flaky
+
+    stats = scrape_all_closed(client, conn, max_workers=1)
+
+    assert stats["errors"] == 1
+    assert stats["new_or_updated"] == 2
+    # Tickets 1 and 3 made it; 2 didn't
+    assert get_ticket(conn, 1) is not None
+    assert get_ticket(conn, 3) is not None
+    assert get_ticket(conn, 2) is None

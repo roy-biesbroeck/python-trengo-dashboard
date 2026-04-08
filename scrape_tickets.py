@@ -57,21 +57,27 @@ def scrape_all_closed(
             "total_remote": len(remote),
             "new_or_updated": 0,
             "skipped_unchanged": len(remote),
+            "errors": 0,
         }
 
     def _fetch(ticket):
         return ticket, client.get_ticket_messages(ticket["id"])
 
     done = 0
+    errors = 0
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {pool.submit(_fetch, t): t for t in to_fetch}
         for fut in as_completed(futures):
-            ticket, messages = fut.result()
-            # Sequential DB writes — sqlite3 default connection is not
-            # thread-safe for writes, and writes are fast enough.
-            upsert_ticket(conn, ticket)
-            upsert_messages(conn, ticket["id"], messages)
-            done += 1
+            try:
+                ticket, messages = fut.result()
+                # Sequential DB writes — sqlite3 default connection is not
+                # thread-safe for writes, and writes are fast enough.
+                upsert_ticket(conn, ticket)
+                upsert_messages(conn, ticket["id"], messages)
+                done += 1
+            except Exception as exc:
+                print(f"  fout bij ticket {futures[fut]['id']}: {exc}")
+                errors += 1
             if progress_cb:
                 progress_cb(done, total)
 
@@ -79,6 +85,7 @@ def scrape_all_closed(
         "total_remote": len(remote),
         "new_or_updated": done,
         "skipped_unchanged": len(remote) - done,
+        "errors": errors,
     }
 
 
