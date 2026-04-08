@@ -120,8 +120,9 @@ def test_get_all_closed_tickets_returns_every_closed_ticket_without_date_filter(
         {"id": 2, "status": "CLOSED", "closed_at": "2026-04-01T00:00:00Z"},  # recent
         {"id": 3, "status": "CLOSED", "closed_at": None},                     # missing
     ]
-    with patch.object(TrengoClient, "_get_paginated", return_value=fake_tickets):
+    with patch.object(TrengoClient, "_get_paginated", return_value=fake_tickets) as mock_get:
         with patch("trengo_client.os.getenv", return_value="dummy-token"):
             client = TrengoClient()
             result = client.get_all_closed_tickets()
     assert [t["id"] for t in result] == [1, 2, 3]
+    mock_get.assert_called_once_with("tickets", {"status": "CLOSED"})
