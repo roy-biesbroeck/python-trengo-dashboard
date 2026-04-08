@@ -178,3 +178,24 @@ def test_upsert_messages_replaces_existing_messages_for_ticket():
 def test_get_ticket_returns_none_for_missing_id():
     conn = init_db(":memory:")
     assert get_ticket(conn, 999) is None
+
+
+from ticket_cache import get_customer_tickets, get_all_ticket_fingerprints
+
+
+def test_get_customer_tickets_returns_rows_for_that_contact_only():
+    conn = init_db(":memory:")
+    upsert_ticket(conn, _sample_ticket(tid=1, contact_id=10))
+    upsert_ticket(conn, _sample_ticket(tid=2, contact_id=10))
+    upsert_ticket(conn, _sample_ticket(tid=3, contact_id=99))
+    rows = get_customer_tickets(conn, 10)
+    assert {r["ticket_id"] for r in rows} == {1, 2}
+
+
+def test_get_all_ticket_fingerprints_returns_id_to_fingerprint_map():
+    conn = init_db(":memory:")
+    upsert_ticket(conn, _sample_ticket(tid=1, msgs=3))
+    upsert_ticket(conn, _sample_ticket(tid=2, msgs=7))
+    fps = get_all_ticket_fingerprints(conn)
+    assert set(fps.keys()) == {1, 2}
+    assert fps[1] != fps[2]

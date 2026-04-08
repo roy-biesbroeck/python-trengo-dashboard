@@ -194,3 +194,30 @@ def get_messages(conn: sqlite3.Connection, ticket_id: int) -> list:
             (ticket_id,),
         ).fetchall()
     )
+
+
+def get_customer_tickets(conn: sqlite3.Connection, contact_id: int) -> list:
+    """All cached tickets for a given contact, newest first."""
+    return list(
+        conn.execute(
+            """
+            SELECT * FROM tickets
+            WHERE contact_id = ?
+            ORDER BY COALESCE(closed_at, created_at) DESC
+            """,
+            (contact_id,),
+        ).fetchall()
+    )
+
+
+def get_all_ticket_fingerprints(conn: sqlite3.Connection) -> dict:
+    """Return {ticket_id: fingerprint} for every cached ticket. Used by the
+    scraper to decide which tickets need re-fetching."""
+    out = {}
+    for row in conn.execute(
+        "SELECT ticket_id, closed_at, message_count FROM tickets"
+    ):
+        out[row["ticket_id"]] = compute_fingerprint(
+            {"closed_at": row["closed_at"], "messages_count": row["message_count"]}
+        )
+    return out
