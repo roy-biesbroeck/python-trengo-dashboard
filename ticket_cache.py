@@ -57,3 +57,31 @@ def init_db(path: Optional[str] = None) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     _apply_schema(conn)
     return conn
+
+
+import re
+
+
+def compute_fingerprint(ticket: dict) -> str:
+    """Stable identifier of a ticket's current content state.
+
+    Changes if the ticket is reopened and re-closed (closed_at moves) or if
+    new messages are added (messages_count changes). Used to decide whether
+    to re-fetch messages for a ticket we already have cached.
+    """
+    closed_at = ticket.get("closed_at") or ""
+    message_count = ticket.get("messages_count") or 0
+    return f"{closed_at}|{message_count}"
+
+
+_TAG_RE = re.compile(r"<[^>]+>")
+_WS_RE = re.compile(r"\s+")
+
+
+def strip_html(value) -> str:
+    """Convert HTML-ish message body to plain text. Safe for None."""
+    if not value:
+        return ""
+    text = _TAG_RE.sub(" ", str(value))
+    text = _WS_RE.sub(" ", text).strip()
+    return text

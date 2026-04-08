@@ -43,3 +43,43 @@ def test_init_db_is_idempotent():
     from ticket_cache import _apply_schema
     _apply_schema(conn)  # should not raise
     conn.execute("SELECT 1 FROM tickets")
+
+
+from ticket_cache import compute_fingerprint, strip_html
+
+
+def test_compute_fingerprint_stable_for_identical_ticket():
+    t1 = {"closed_at": "2026-04-01T10:00:00Z", "messages_count": 7}
+    t2 = {"closed_at": "2026-04-01T10:00:00Z", "messages_count": 7}
+    assert compute_fingerprint(t1) == compute_fingerprint(t2)
+
+
+def test_compute_fingerprint_changes_when_closed_at_changes():
+    t1 = {"closed_at": "2026-04-01T10:00:00Z", "messages_count": 7}
+    t2 = {"closed_at": "2026-04-02T10:00:00Z", "messages_count": 7}
+    assert compute_fingerprint(t1) != compute_fingerprint(t2)
+
+
+def test_compute_fingerprint_changes_when_message_count_changes():
+    t1 = {"closed_at": "2026-04-01T10:00:00Z", "messages_count": 7}
+    t2 = {"closed_at": "2026-04-01T10:00:00Z", "messages_count": 8}
+    assert compute_fingerprint(t1) != compute_fingerprint(t2)
+
+
+def test_compute_fingerprint_handles_missing_fields():
+    """Should not raise on tickets missing closed_at or messages_count."""
+    assert compute_fingerprint({}) == compute_fingerprint({})
+    assert compute_fingerprint({"closed_at": None}) == compute_fingerprint({})
+
+
+def test_strip_html_removes_tags_and_collapses_whitespace():
+    html = "<p>Hallo  <b>wereld</b></p>\n<br><div>Test</div>"
+    assert strip_html(html) == "Hallo wereld Test"
+
+
+def test_strip_html_handles_none():
+    assert strip_html(None) == ""
+
+
+def test_strip_html_handles_plain_text():
+    assert strip_html("gewoon tekst") == "gewoon tekst"
