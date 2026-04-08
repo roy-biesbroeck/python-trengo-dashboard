@@ -1,24 +1,36 @@
 """One-time harvest of historical customer label data.
 
-Fetches closed tickets from Trengo, parses label events from ticket
-messages, groups by customer, counts labels, and saves to cache.
+Reads closed tickets and their messages from the SQLite cache, parses label
+events, groups by customer, counts labels, and saves to cache.
 
 Usage:
-    python harvest_history.py
+    python scrape_tickets.py   # populate the SQLite cache first
+    python harvest_history.py  # then run this (no API calls)
 """
 
 import json
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Dict, List
 
-from trengo_client import TrengoClient
+from ticket_cache import init_db
 from label_config import MANUAL_ONLY_LABELS, is_internal_contact
 from label_history_parser import get_ever_applied_labels
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 DEFAULT_CACHE_FILE = os.path.join(DATA_DIR, "customer_label_history.json")
+
+
+def _load_ticket_from_row(row) -> Dict:
+    return json.loads(row["raw_payload"])
+
+
+def _load_messages_for_ticket(conn, ticket_id: int) -> List[Dict]:
+    rows = conn.execute(
+        "SELECT raw_payload FROM messages WHERE ticket_id = ? ORDER BY created_at",
+        (ticket_id,),
+    ).fetchall()
+    return [json.loads(r["raw_payload"]) for r in rows]
 
 
 def _get_contact_id(ticket: Dict):
@@ -44,59 +56,34 @@ def _group_tickets_by_contact(tickets: List[Dict]) -> Dict[int, List[Dict]]:
         contact_id = _get_contact_id(ticket)
         if not contact_id:
             continue
-        if contact_id not in groups:
-            groups[contact_id] = []
-        groups[contact_id].append(ticket)
+        groups.setdefault(contact_id, []).append(ticket)
     return groups
 
 
-def harvest_customer_history(
-    client: TrengoClient = None,
-    cache_file: str = None,
-) -> Dict:
-    if client is None:
-        client = TrengoClient()
+def harvest_customer_history(conn=None, cache_file: str = None) -> Dict:
+    if conn is None:
+        conn = init_db()
     if cache_file is None:
         cache_file = DEFAULT_CACHE_FILE
 
     os.makedirs(os.path.dirname(cache_file), exist_ok=True)
 
-    print("Ophalen gesloten tickets van Trengo...")
-    closed_tickets = client.get_closed_tickets()
-    print(f"  {len(closed_tickets)} gesloten tickets opgehaald")
+    print("Tickets lezen uit cache...")
+    ticket_rows = conn.execute(
+        "SELECT * FROM tickets WHERE status = 'CLOSED'"
+    ).fetchall()
+    closed_tickets = [_load_ticket_from_row(r) for r in ticket_rows]
+    print(f"  {len(closed_tickets)} gesloten tickets in cache")
 
-    # Fetch messages for each ticket to parse label events
-    total = len(closed_tickets)
-    if total > 0:
-        print(f"  Berichten ophalen voor {total} tickets (5 parallel)...")
-        done = 0
-
-        def fetch_messages(ticket):
-            return ticket["id"], client.get_ticket_messages(ticket["id"])
-
-        ticket_messages: Dict[int, list] = {}
-        with ThreadPoolExecutor(max_workers=5) as pool:
-            futures = {pool.submit(fetch_messages, t): t for t in closed_tickets}
-            for future in as_completed(futures):
-                tid, messages = future.result()
-                ticket_messages[tid] = messages
-                done += 1
-                if done % 100 == 0:
-                    print(f"    {done}/{total} verwerkt...")
-    else:
-        ticket_messages = {}
-
-    # Parse label events from messages
     print("  Label events parsen...")
     ticket_labels: Dict[int, set] = {}
     for ticket in closed_tickets:
         tid = ticket["id"]
-        messages = ticket_messages.get(tid, [])
+        messages = _load_messages_for_ticket(conn, tid)
         labels = get_ever_applied_labels(messages)
         labels = {l for l in labels if l not in MANUAL_ONLY_LABELS}
         ticket_labels[tid] = labels
 
-    # Group by contact, exclude internal contacts
     groups = _group_tickets_by_contact(closed_tickets)
     print(f"  {len(groups)} unieke contacten gevonden")
 
@@ -132,7 +119,7 @@ def harvest_customer_history(
         "cache_file": cache_file,
     }
 
-    print(f"\nKlaar!")
+    print("\nKlaar!")
     print(f"  {result['customers_processed']} contacten verwerkt")
     print(f"  {result['internal_skipped']} interne contacten overgeslagen")
     print(f"  {result['customers_with_labels']} klanten met labels opgeslagen")
@@ -142,4 +129,5 @@ def harvest_customer_history(
 
 
 if __name__ == "__main__":
+    # Usage: run scrape_tickets.py first to populate the cache, then this.
     harvest_customer_history()
