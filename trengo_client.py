@@ -83,6 +83,9 @@ class TrengoClient:
                 if not links.get("next"):
                     break
 
+                if page % 10 == 0:
+                    print(f"  paginatie {endpoint}: pagina {page}, {len(results)} resultaten...")
+
                 page += 1
                 if page > 2000:  # Veiligheidsgrens
                     break
