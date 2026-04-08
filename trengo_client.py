@@ -1,11 +1,17 @@
 import os
 import time
+import threading
 import requests
 from typing import List, Dict, Optional
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Thread-safe rate limit logging throttle
+_RATE_LIMIT_LOG_LOCK = threading.Lock()
+_LAST_RATE_LIMIT_LOG_TS = 0.0
+_RATE_LIMIT_LOG_INTERVAL = 10.0  # seconds
 
 
 def parse_datetime(raw) -> Optional[datetime]:
@@ -20,6 +26,18 @@ def parse_datetime(raw) -> Optional[datetime]:
         return dt
     except (ValueError, TypeError):
         return None
+
+
+def _maybe_log_rate_limit() -> None:
+    """Print a rate-limit warning at most once per _RATE_LIMIT_LOG_INTERVAL seconds.
+    Thread-safe: many concurrent workers may hit 429 simultaneously."""
+    global _LAST_RATE_LIMIT_LOG_TS
+    now = time.monotonic()
+    with _RATE_LIMIT_LOG_LOCK:
+        if now - _LAST_RATE_LIMIT_LOG_TS < _RATE_LIMIT_LOG_INTERVAL:
+            return
+        _LAST_RATE_LIMIT_LOG_TS = now
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Rate limit bereikt, even wachten...")
 
 
 class TrengoClient:
@@ -71,7 +89,7 @@ class TrengoClient:
 
             except requests.exceptions.HTTPError as e:
                 if e.response is not None and e.response.status_code == 429:
-                    print(f"[{datetime.now().strftime('%H:%M:%S')}] Rate limit bereikt, 2 seconden wachten...")
+                    _maybe_log_rate_limit()
                     time.sleep(2)
                     continue
                 print(f"HTTP fout bij {endpoint} (pagina {page}): {e}")
