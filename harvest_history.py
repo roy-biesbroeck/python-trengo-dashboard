@@ -74,6 +74,8 @@ def harvest_customer_history(conn=None, cache_file: str = None) -> Dict:
     ).fetchall()
     closed_tickets = [_load_ticket_from_row(r) for r in ticket_rows]
     print(f"  {len(closed_tickets)} gesloten tickets in cache")
+    if not closed_tickets:
+        print("  WAARSCHUWING: cache is leeg. Voer eerst `python scrape_tickets.py` uit.")
 
     print("  Label events parsen...")
     ticket_labels: Dict[int, set] = {}
