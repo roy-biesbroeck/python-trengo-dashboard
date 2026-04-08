@@ -109,6 +109,14 @@ class TrengoClient:
                 result.append(ticket)
         return result
 
+    def get_all_closed_tickets(self) -> List[Dict]:
+        """Haal ALLE gesloten tickets op die Trengo nog bewaart (geen datum filter).
+
+        Gebruik dit voor caching/backfill; gebruik get_closed_tickets() voor
+        dashboardweergave (afgelopen 90 dagen).
+        """
+        return self._get_paginated("tickets", {"status": "CLOSED"})
+
     def close_ticket(self, ticket_id: int) -> bool:
         """Sluit een ticket via de Trengo API. Retourneert True bij succes."""
         try:

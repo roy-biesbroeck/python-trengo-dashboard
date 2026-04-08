@@ -111,3 +111,17 @@ def test_get_labels(client):
 
     assert len(labels) == 2
     assert labels[1]["name"] == "RMA"
+
+
+def test_get_all_closed_tickets_returns_every_closed_ticket_without_date_filter():
+    """get_all_closed_tickets must not apply the 90-day filter."""
+    fake_tickets = [
+        {"id": 1, "status": "CLOSED", "closed_at": "2020-01-01T00:00:00Z"},  # very old
+        {"id": 2, "status": "CLOSED", "closed_at": "2026-04-01T00:00:00Z"},  # recent
+        {"id": 3, "status": "CLOSED", "closed_at": None},                     # missing
+    ]
+    with patch.object(TrengoClient, "_get_paginated", return_value=fake_tickets):
+        with patch("trengo_client.os.getenv", return_value="dummy-token"):
+            client = TrengoClient()
+            result = client.get_all_closed_tickets()
+    assert [t["id"] for t in result] == [1, 2, 3]
