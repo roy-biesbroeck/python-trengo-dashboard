@@ -166,10 +166,12 @@ class TrengoClient:
                 json={"label_id": label_id},
                 timeout=15,
             )
-            response.raise_for_status()
+            if response.status_code >= 400:
+                print(f"[attach_label] HTTP {response.status_code} voor ticket {ticket_id} label {label_id}: {response.text[:500]}")
+                return False
             return True
         except Exception as e:
-            print(f"Fout bij koppelen label {label_id} aan ticket {ticket_id}: {e}")
+            print(f"[attach_label] Exception ticket {ticket_id} label {label_id}: {type(e).__name__}: {e}")
             return False
 
     def get_labels(self) -> List[Dict]:
