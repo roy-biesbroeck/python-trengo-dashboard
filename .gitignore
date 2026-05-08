@@ -216,3 +216,6 @@ __marimo__/
 
 # Superpowers plans (one-time build guides)
 docs/superpowers/
+
+# Pytest tmp dir (runtime)
+pytest-of-Roy/
