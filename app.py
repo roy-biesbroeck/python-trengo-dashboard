@@ -140,6 +140,7 @@ def _get_closed_data():
     closed_week = 0
     closed_month = 0
     closed_total = len(closed_tickets)
+    created_today_closed = 0
     daily_counts = {}
 
     for ticket in closed_tickets:
@@ -153,6 +154,11 @@ def _get_closed_data():
 
         if closed_local_date == today_local:
             closed_today += 1
+            # Vandaag aangemaakt én gesloten: staat niet meer in de open lijst,
+            # dus summary.new_today telt deze niet mee.
+            created_at = parse_datetime(ticket.get("created_at"))
+            if created_at and created_at.astimezone().date() == today_local:
+                created_today_closed += 1
         if closed_at >= week_ago:
             closed_week += 1
         if closed_at >= month_ago:
@@ -163,6 +169,7 @@ def _get_closed_data():
         "closed_week": closed_week,
         "closed_month": closed_month,
         "closed_90d": closed_total,
+        "created_today_closed": created_today_closed,
         "daily_counts": daily_counts,
         "fetched_at": now.isoformat(),
     }

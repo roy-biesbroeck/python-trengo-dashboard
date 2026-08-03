@@ -660,7 +660,11 @@
 
     function renderNetIndicator(newToday) {
       if (!closedData) return;
-      const net = closedData.closed_today - newToday;
+      // newToday telt alleen tickets die vandaag binnenkwamen én nog open staan.
+      // Vandaag aangemaakt + vandaag gesloten zit alleen in closed_today, dus
+      // die tellen we hier expliciet mee om dubbeltelling te voorkomen.
+      const createdToday = newToday + (closedData.created_today_closed || 0);
+      const net = closedData.closed_today - createdToday;
       const el = document.getElementById('s-closed-net');
       if (!el) return;
       let arrow, cls, label;
