@@ -2,6 +2,8 @@
 read a cache. A page view must not trigger its own Trengo scrape or history write.
 """
 import json
+import threading
+import time
 from unittest.mock import patch
 
 import pytest
@@ -46,6 +48,26 @@ def test_dashboard_route_serves_cache_without_refetching():
         assert r1.get_json()["summary"]["total"] == 100
         assert r2.get_json() == r1.get_json()
         assert mock.return_value.get_dashboard_data.call_count == 1  # not per-view
+
+
+def test_concurrent_cold_requests_share_one_fetch():
+    """Cold-start: overlapping callers (startup warm + first viewers) must share
+    a single Trengo scrape, not each launch their own."""
+    def slow_scrape():
+        time.sleep(0.25)  # long enough for the threads to overlap
+        return FAKE
+
+    with patch.object(app_module, "TrengoClient") as mock:
+        mock.return_value.get_dashboard_data.side_effect = slow_scrape
+        threads = [threading.Thread(target=app_module._refresh_dashboard)
+                   for _ in range(6)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+    assert mock.return_value.get_dashboard_data.call_count == 1
+    assert app_module._dashboard_cache["data"] == FAKE
 
 
 def test_force_refresh_refetches():

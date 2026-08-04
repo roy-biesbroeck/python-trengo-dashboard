@@ -36,6 +36,10 @@ _MAX_HISTORY = 10000
 # writes history; clients read this cache instead of driving their own fetch.
 _dashboard_cache = {"data": None, "fetched_at": None}
 
+# Serialize refreshes so overlapping callers (scheduler, manual refresh,
+# cold-start warm) share one Trengo scrape instead of stacking parallel scrapes.
+_refresh_lock = threading.Lock()
+
 # Serialize history read-modify-write so overlapping writers can't corrupt it.
 _history_lock = threading.Lock()
 
@@ -155,12 +159,9 @@ def index():
     return render_template("index.html")
 
 
-def _refresh_dashboard():
+def _do_refresh():
     """Fetch live data, record one history snapshot, and cache the result.
-
-    This is the single writer of history — driven by the scheduler (and the
-    manual refresh button), never by ordinary page views.
-    """
+    The single writer of history."""
     client = TrengoClient()
     data = client.get_dashboard_data()
     _save_snapshot(data['summary']['new'], data['summary']['assigned'])
@@ -169,12 +170,40 @@ def _refresh_dashboard():
     return data
 
 
+def _refresh_dashboard(force=False):
+    """Return dashboard data, hitting Trengo only when needed.
+
+    Warm cache without a forced refresh returns instantly and lock-free, so
+    ordinary reads never block on an in-flight scrape. A cold or forced call
+    takes the lock and double-checks, so concurrent cold callers (startup warm
+    + first viewers) share one scrape instead of each launching their own.
+    """
+    if not force and _dashboard_cache['data'] is not None:
+        return _dashboard_cache['data']
+    with _refresh_lock:
+        if not force and _dashboard_cache['data'] is not None:
+            return _dashboard_cache['data']
+        return _do_refresh()
+
+
+def _scheduled_dashboard_refresh():
+    _refresh_dashboard(force=True)
+
+
+def _warm_dashboard_cache():
+    """Populate the cache in the background at startup so the first page view
+    after a restart doesn't block on a full Trengo scrape."""
+    try:
+        _refresh_dashboard()
+    except Exception:
+        pass  # the scheduler will retry on its interval
+
+
 @app.route("/api/dashboard")
 def dashboard():
     try:
-        if request.args.get('refresh') == '1' or _dashboard_cache['data'] is None:
-            _refresh_dashboard()
-        return jsonify(_dashboard_cache['data'])
+        data = _refresh_dashboard(force=request.args.get('refresh') == '1')
+        return jsonify(data)
     except ValueError as e:
         return jsonify({"error": str(e)}), 500
     except Exception as e:
@@ -261,7 +290,7 @@ scheduler.add_job(run_autoclose, "interval", minutes=30, id="ruijie_autoclose")
 # independent of how many browsers are open. coalesce/max_instances stop a slow
 # Trengo scrape from stacking up.
 scheduler.add_job(
-    _refresh_dashboard, "interval", minutes=5, id="dashboard_refresh",
+    _scheduled_dashboard_refresh, "interval", minutes=5, id="dashboard_refresh",
     max_instances=1, coalesce=True,
 )
 scheduler.start()
@@ -425,4 +454,5 @@ def tagger_customers():
 
 
 if __name__ == "__main__":
+    threading.Thread(target=_warm_dashboard_cache, daemon=True).start()
     app.run(debug=False, host="0.0.0.0", port=5000)
