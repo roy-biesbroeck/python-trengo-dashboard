@@ -28,6 +28,7 @@ _SPIKE_ABS   = 15     # 15 tickets absolute deviation
 # Closed-ticket cache (refreshed every 30 minutes)
 _closed_cache = {"data": None, "fetched_at": None}
 _CLOSED_TTL = timedelta(minutes=30)
+_closed_lock = threading.Lock()
 
 # History retention: one snapshot per scheduler tick (5 min) -> ~34 days.
 _MAX_HISTORY = 10000
@@ -190,13 +191,15 @@ def _scheduled_dashboard_refresh():
     _refresh_dashboard(force=True)
 
 
-def _warm_dashboard_cache():
-    """Populate the cache in the background at startup so the first page view
-    after a restart doesn't block on a full Trengo scrape."""
-    try:
-        _refresh_dashboard()
-    except Exception:
-        pass  # the scheduler will retry on its interval
+def _warm_caches():
+    """Populate the dashboard and closed caches in the background at startup so
+    the first page view after a restart doesn't block on a full Trengo scrape.
+    Sequential (not parallel) to stay gentle on Trengo's rate limit."""
+    for warm in (_refresh_dashboard, _get_closed_data):
+        try:
+            warm()
+        except Exception:
+            pass  # the scheduler will retry on its interval
 
 
 @app.route("/api/dashboard")
@@ -215,14 +218,30 @@ def history():
     return jsonify(_filter_spikes(_load_history()))
 
 
-def _get_closed_data():
-    """Return closed-ticket stats, using 30-min cache."""
-    now = datetime.now(timezone.utc)
-    if (_closed_cache["data"] is not None
+def _closed_is_fresh():
+    return (_closed_cache["data"] is not None
             and _closed_cache["fetched_at"] is not None
-            and now - _closed_cache["fetched_at"] < _CLOSED_TTL):
-        return _closed_cache["data"]
+            and datetime.now(timezone.utc) - _closed_cache["fetched_at"] < _CLOSED_TTL)
 
+
+def _get_closed_data(force=False):
+    """Return closed-ticket stats from cache, scraping Trengo only when needed.
+
+    Fresh cache + no force returns instantly and lock-free. A cold or forced
+    call takes the lock and double-checks, so concurrent cold callers (startup
+    warm, scheduler, first viewers) share one heavy scrape instead of stacking.
+    """
+    if not force and _closed_is_fresh():
+        return _closed_cache["data"]
+    with _closed_lock:
+        if not force and _closed_is_fresh():
+            return _closed_cache["data"]
+        return _compute_closed_data()
+
+
+def _compute_closed_data():
+    """Fetch closed tickets and compute stats. The single heavy Trengo scrape."""
+    now = datetime.now(timezone.utc)
     client = TrengoClient()
     closed_tickets = client.get_closed_tickets()
 
@@ -273,6 +292,10 @@ def _get_closed_data():
     return result
 
 
+def _scheduled_closed_refresh():
+    _get_closed_data(force=True)
+
+
 @app.route("/api/closed")
 def closed():
     try:
@@ -291,6 +314,12 @@ scheduler.add_job(run_autoclose, "interval", minutes=30, id="ruijie_autoclose")
 # Trengo scrape from stacking up.
 scheduler.add_job(
     _scheduled_dashboard_refresh, "interval", minutes=5, id="dashboard_refresh",
+    max_instances=1, coalesce=True,
+)
+# Refresh the closed cache well before its 30-min TTL expires, so a viewer
+# never lands on an expired cache and triggers a synchronous heavy scrape.
+scheduler.add_job(
+    _scheduled_closed_refresh, "interval", minutes=15, id="closed_refresh",
     max_instances=1, coalesce=True,
 )
 scheduler.start()
@@ -454,5 +483,5 @@ def tagger_customers():
 
 
 if __name__ == "__main__":
-    threading.Thread(target=_warm_dashboard_cache, daemon=True).start()
+    threading.Thread(target=_warm_caches, daemon=True).start()
     app.run(debug=False, host="0.0.0.0", port=5000)
