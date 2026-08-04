@@ -132,7 +132,7 @@ def _atomic_write_history(history):
     _maybe_backup()
 
 
-def _save_snapshot(open_count, assigned_count):
+def _save_snapshot(open_count, assigned_count, closed_count=None):
     os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
     with _history_lock:
         history = _load_history()
@@ -149,6 +149,7 @@ def _save_snapshot(open_count, assigned_count):
             "open":     open_count,
             "assigned": assigned_count,
             "total":    new_total,
+            "closed":   closed_count,
         })
         if len(history) > _MAX_HISTORY:
             history = history[-_MAX_HISTORY:]
@@ -165,7 +166,11 @@ def _do_refresh():
     The single writer of history."""
     client = TrengoClient()
     data = client.get_dashboard_data()
-    _save_snapshot(data['summary']['new'], data['summary']['assigned'])
+    # Stamp the snapshot with closed_today from the separately-warmed closed
+    # cache (a cheap read; don't trigger a closed scrape from the dashboard tick).
+    cached_closed = _closed_cache['data']
+    closed_today = cached_closed.get('closed_today') if cached_closed else None
+    _save_snapshot(data['summary']['new'], data['summary']['assigned'], closed_today)
     _dashboard_cache['data'] = data
     _dashboard_cache['fetched_at'] = datetime.now(timezone.utc)
     return data

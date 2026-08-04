@@ -38,6 +38,20 @@ def test_refresh_populates_cache_and_writes_one_history_point(tmp_path):
     assert saved[0]["total"] == 100
 
 
+def test_refresh_records_closed_from_warm_cache(tmp_path):
+    """The dashboard refresh stamps each snapshot with closed_today read from the
+    (separately warmed) closed cache, without triggering its own closed scrape."""
+    app_module._closed_cache["data"] = {"closed_today": 9}
+    try:
+        with patch.object(app_module, "TrengoClient") as mock:
+            mock.return_value.get_dashboard_data.return_value = FAKE
+            app_module._refresh_dashboard()
+        saved = json.loads((tmp_path / "history.json").read_text(encoding="utf-8"))
+        assert saved[-1]["closed"] == 9
+    finally:
+        app_module._closed_cache["data"] = None
+
+
 def test_dashboard_route_serves_cache_without_refetching():
     client = app_module.app.test_client()
     with patch.object(app_module, "TrengoClient") as mock:

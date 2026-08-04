@@ -58,6 +58,15 @@ def test_load_history_preserves_corrupt_file(hist_file):
         encoding="utf-8") == "{ this is not json"
 
 
+def test_save_snapshot_persists_closed_count(hist_file):
+    """The closed count is stored per snapshot so the Gesloten line has real
+    persisted history instead of being re-derived from a 90-day live scrape."""
+    app_module._save_snapshot(60, 40, closed_count=7)
+    saved = json.loads(hist_file.read_text(encoding="utf-8"))
+    assert saved[-1]["closed"] == 7
+    assert saved[-1]["total"] == 100
+
+
 def test_save_is_atomic_leaves_no_partial_file(hist_file):
     """After a save, the dir holds only the final file (+backup) — no stray temp."""
     _seed(hist_file, 3, total=100)

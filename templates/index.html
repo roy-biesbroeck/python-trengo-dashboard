@@ -847,6 +847,9 @@
       );
       const closedDailyCounts = closedData && closedData.daily_counts ? closedData.daily_counts : {};
       const closedValues = filtered.map(d => {
+        // Persisted per-snapshot count; fall back to the live daily total for
+        // snapshots recorded before 'closed' was stored.
+        if (typeof d.closed === 'number') return d.closed;
         const dateKey = new Date(d.ts).toLocaleDateString('sv-SE');
         return closedDailyCounts[dateKey] || 0;
       });
