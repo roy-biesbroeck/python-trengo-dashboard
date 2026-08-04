@@ -1,5 +1,8 @@
 import json
 import os
+import shutil
+import tempfile
+import threading
 from datetime import datetime, timezone, timedelta
 
 from flask import Flask, render_template, jsonify, request
@@ -25,6 +28,16 @@ _SPIKE_ABS   = 15     # 15 tickets absolute deviation
 # Closed-ticket cache (refreshed every 30 minutes)
 _closed_cache = {"data": None, "fetched_at": None}
 _CLOSED_TTL = timedelta(minutes=30)
+
+# History retention: one snapshot per scheduler tick (5 min) -> ~34 days.
+_MAX_HISTORY = 10000
+
+# Dashboard cache. The scheduler is the single source that fetches Trengo and
+# writes history; clients read this cache instead of driving their own fetch.
+_dashboard_cache = {"data": None, "fetched_at": None}
+
+# Serialize history read-modify-write so overlapping writers can't corrupt it.
+_history_lock = threading.Lock()
 
 
 def _median(values):
@@ -68,33 +81,73 @@ def _load_history():
         return []
     try:
         with open(HISTORY_FILE, encoding='utf-8') as f:
-            return json.load(f)
+            data = json.load(f)
+        if not isinstance(data, list):
+            raise ValueError("history file is not a list")
+        return data
     except Exception:
+        # Corrupt/unreadable: set it aside for inspection instead of silently
+        # returning [] and letting the next write clobber real data.
+        try:
+            os.replace(HISTORY_FILE, HISTORY_FILE + '.corrupt')
+        except OSError:
+            pass
         return []
+
+
+def _maybe_backup():
+    """Keep a once-a-day backup so a single bad write can never cost everything."""
+    backup = HISTORY_FILE + '.bak'
+    try:
+        stale = (not os.path.exists(backup)
+                 or datetime.now().timestamp() - os.path.getmtime(backup) > 86400)
+        if stale:
+            shutil.copy2(HISTORY_FILE, backup)
+    except OSError:
+        pass
+
+
+def _atomic_write_history(history):
+    """Write via a temp file + os.replace so a concurrent reader never sees a
+    half-written or truncated file (the root cause of the history-wipe bug)."""
+    directory = os.path.dirname(HISTORY_FILE)
+    fd, tmp = tempfile.mkstemp(dir=directory, prefix='.history-', suffix='.tmp')
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            json.dump(history, f)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, HISTORY_FILE)  # atomic
+    except Exception:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+    _maybe_backup()
 
 
 def _save_snapshot(open_count, assigned_count):
     os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
-    history = _load_history()
-    new_total = open_count + assigned_count
+    with _history_lock:
+        history = _load_history()
+        new_total = open_count + assigned_count
 
-    # Skip snapshot when it looks like an API glitch (sudden spike or dip).
-    if len(history) >= 3:
-        recent_totals = [h['total'] for h in history[-5:]]
-        if _is_spike(new_total, recent_totals):
-            return  # Discard anomalous data point
+        # Skip snapshot when it looks like an API glitch (sudden spike or dip).
+        if len(history) >= 3:
+            recent_totals = [h['total'] for h in history[-5:]]
+            if _is_spike(new_total, recent_totals):
+                return  # Discard anomalous data point
 
-    history.append({
-        "ts":       datetime.now().isoformat(timespec='seconds'),
-        "open":     open_count,
-        "assigned": assigned_count,
-        "total":    new_total,
-    })
-    # Keep last 1000 entries
-    if len(history) > 1000:
-        history = history[-1000:]
-    with open(HISTORY_FILE, 'w', encoding='utf-8') as f:
-        json.dump(history, f)
+        history.append({
+            "ts":       datetime.now().isoformat(timespec='seconds'),
+            "open":     open_count,
+            "assigned": assigned_count,
+            "total":    new_total,
+        })
+        if len(history) > _MAX_HISTORY:
+            history = history[-_MAX_HISTORY:]
+        _atomic_write_history(history)
 
 
 @app.route("/")
@@ -102,13 +155,26 @@ def index():
     return render_template("index.html")
 
 
+def _refresh_dashboard():
+    """Fetch live data, record one history snapshot, and cache the result.
+
+    This is the single writer of history — driven by the scheduler (and the
+    manual refresh button), never by ordinary page views.
+    """
+    client = TrengoClient()
+    data = client.get_dashboard_data()
+    _save_snapshot(data['summary']['new'], data['summary']['assigned'])
+    _dashboard_cache['data'] = data
+    _dashboard_cache['fetched_at'] = datetime.now(timezone.utc)
+    return data
+
+
 @app.route("/api/dashboard")
 def dashboard():
     try:
-        client = TrengoClient()
-        data = client.get_dashboard_data()
-        _save_snapshot(data['summary']['new'], data['summary']['assigned'])
-        return jsonify(data)
+        if request.args.get('refresh') == '1' or _dashboard_cache['data'] is None:
+            _refresh_dashboard()
+        return jsonify(_dashboard_cache['data'])
     except ValueError as e:
         return jsonify({"error": str(e)}), 500
     except Exception as e:
@@ -191,6 +257,13 @@ def closed():
 # ── Autoclose scheduler ─────────────────────────────
 scheduler = BackgroundScheduler(daemon=True)
 scheduler.add_job(run_autoclose, "interval", minutes=30, id="ruijie_autoclose")
+# Server-side dashboard poll: one fetch + one history snapshot per tick,
+# independent of how many browsers are open. coalesce/max_instances stop a slow
+# Trengo scrape from stacking up.
+scheduler.add_job(
+    _refresh_dashboard, "interval", minutes=5, id="dashboard_refresh",
+    max_instances=1, coalesce=True,
+)
 scheduler.start()
 
 # ── Label Suggester scheduler ────────────────────────
