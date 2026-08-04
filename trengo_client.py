@@ -3,7 +3,7 @@ import time
 import threading
 import requests
 from typing import List, Dict, Optional
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -115,10 +115,24 @@ class TrengoClient:
         """Haal alle tickets op met een bepaalde status."""
         return self._get_paginated("tickets", {"status": status})
 
+    # 90-day retention + buffer for clock/timezone edges. Closing a ticket is an
+    # update, so closed_at <= updated_at: a ticket closed within 90 days always
+    # falls inside this updated_at window, so none are missed.
+    CLOSED_LOOKBACK_DAYS = 92
+
     def get_closed_tickets(self) -> List[Dict]:
-        """Haal alle gesloten tickets op van de afgelopen 90 dagen."""
-        closed = self._get_paginated("tickets", {"status": "CLOSED"})
+        """Haal gesloten tickets van de afgelopen 90 dagen op.
+
+        Filtert server-side op updated_at zodat Trengo niet álle gesloten tickets
+        ooit hoeft terug te geven (dat groeit onbegrensd). De client-side
+        90-dagen-filter hieronder trimt de resterende extra's.
+        """
         now_utc = datetime.now(timezone.utc)
+        cutoff = now_utc - timedelta(days=self.CLOSED_LOOKBACK_DAYS)
+        closed = self._get_paginated("tickets", {
+            "status": "CLOSED",
+            "updated_at_gt": cutoff.strftime("%Y-%m-%d %H:%M:%S"),
+        })
         result = []
         for ticket in closed:
             if not isinstance(ticket, dict):

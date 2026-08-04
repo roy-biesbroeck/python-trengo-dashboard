@@ -113,6 +113,34 @@ def test_get_labels(client):
     assert labels[1]["name"] == "RMA"
 
 
+def test_get_closed_tickets_filters_server_side_by_updated_at():
+    """get_closed_tickets must send updated_at_gt so Trengo only returns tickets
+    updated within the retention window, instead of scraping all closed tickets
+    ever. Closing is an update (closed_at <= updated_at), so a ticket closed
+    within 90 days is guaranteed to fall inside this window — no recent close is
+    missed. The client-side 90-day filter still trims the extras."""
+    from datetime import datetime, timezone
+    from trengo_client import parse_datetime
+
+    fake = [
+        {"id": 1, "status": "CLOSED", "closed_at": "2020-01-01T00:00:00Z"},  # old -> trimmed
+        {"id": 2, "status": "CLOSED", "closed_at": None},                    # missing -> skipped
+    ]
+    with patch.object(TrengoClient, "_get_paginated", return_value=fake) as mock_get:
+        with patch("trengo_client.os.getenv", return_value="dummy-token"):
+            result = TrengoClient().get_closed_tickets()
+
+    mock_get.assert_called_once()
+    endpoint, params = mock_get.call_args.args
+    assert endpoint == "tickets"
+    assert params["status"] == "CLOSED"
+    cutoff = parse_datetime(params["updated_at_gt"])
+    assert cutoff is not None
+    age_days = (datetime.now(timezone.utc) - cutoff).total_seconds() / 86400
+    assert 90 <= age_days <= 100  # ~92-day window (retention + buffer)
+    assert [t["id"] for t in result] == []  # old ticket still trimmed client-side
+
+
 def test_get_all_closed_tickets_returns_every_closed_ticket_without_date_filter():
     """get_all_closed_tickets must not apply the 90-day filter."""
     fake_tickets = [
